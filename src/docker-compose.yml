@@ -40,8 +40,8 @@ services:
       - broker
     environment:
       KAFKA_BROKER: broker:29092
-    command: python producer.py
-
+    # command: python producer.py
+    command: python producer.py --params '["temperature_2m", "relative_humidity_2m", "is_day", "precipitation", "rain", "showers", "weather_code", "cloud_cover", "wind_speed_10m"]'
   consumer:
     build:
       context: ./consumers

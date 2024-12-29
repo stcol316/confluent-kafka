@@ -36,16 +36,30 @@ producer = Producer(config)
     "--topic", type=str, default="weather_data", help="The topic to produce the data to"
 )
 @click.option(
-    "--params",
-    type=str,
-    default='{"latitude":54.51,"longitude": -6.04,"hourly": "temperature_2m"}',
+    "--lat",
+    type=float,
+    default= 54.51,
     help="API call parameters as json string",
 )
-def fetch_data(url, topic, params):
-    print(f"{datetime.now()} URL: {url}\nTopic: {topic}\nParams: {params}\n")
+@click.option(
+    "--long",
+    type=float,
+    default= -6.04,
+    help="API call parameters as json string",
+)
+@click.option(
+    "--params",
+    type=str,
+    default='["temperature_2m"]',
+    help="API call parameters as json string",
+)
+def fetch_data(url, topic, lat, long, params):
+    print(f"{datetime.now()} URL: {url}\nTopic: {topic}\nLatitude: {lat}\nLongitude: {long}\nParams: {params}\n")
 
     # load params to be usable by requests
-    p = json.loads(params)
+    paramStr=(f'{{"latitude": {lat}, "longitude": {long}, "current": {params}}}')
+    print(paramStr)
+    p = json.loads(paramStr)
 
     try:
         while True:
