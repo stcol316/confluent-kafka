@@ -9,12 +9,13 @@ import click
 import time
 import json
 import sys
+from datetime import datetime
 
 # Configure Producer
 config = {
     # User-specific properties that you must set
     # Port can be found as Plaintext Ports after running confluent local kafka start
-    "bootstrap.servers": "localhost:51729",
+    "bootstrap.servers": "broker:29092",
     # Fixed properties
     "acks": "all",
 }
@@ -41,7 +42,7 @@ producer = Producer(config)
     help="API call parameters as json string",
 )
 def fetch_data(url, topic, params):
-    print(f"URL: {url}\nTopic: {topic}\nParams: {params}\n")
+    print(f"{datetime.now()} URL: {url}\nTopic: {topic}\nParams: {params}\n")
 
     # load params to be usable by requests
     p = json.loads(params)
@@ -52,10 +53,10 @@ def fetch_data(url, topic, params):
 
             # If we get a successful response send the data to kafka
             if response.status_code == 200:
-                print(response.json())
+                print(f"{datetime.now()} {response.json()}")
                 queue_data(response.json(), topic)
             else:
-                print(f"Error fetching data: {response.status_code}")
+                print(f"{datetime.now()} Error fetching data: {response.status_code}")
                 producer.flush()
                 sys.exit(1)
 
