@@ -10,7 +10,7 @@ config = {
     'bootstrap.servers': 'broker:29092',
 
     # Fixed properties
-    'group.id':          'kafka-python-getting-started',
+    'group.id':          'weather-data-consumers',
     'auto.offset.reset': 'earliest'
 }
 
@@ -27,7 +27,6 @@ consumer = Consumer(config)
 )
 def poll_data(topic):
     # Subscribe to topic
-    # topic = "weather_data"
     try:
         consumer.subscribe([topic])
     except Exception as e:
@@ -45,9 +44,8 @@ def poll_data(topic):
             elif msg.error():
                 print(f"ERROR: {msg.error()}")
             else:
-                # Extract the (optional) key and value, and print.
                 print(f"{datetime.now()} {msg.value()}")
-            time.sleep(10)  # Ensure exactly 1 second between iterations
+            time.sleep(10)
     except KeyboardInterrupt:
         pass
     finally:

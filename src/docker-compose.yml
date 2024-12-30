@@ -10,7 +10,7 @@ services:
       - "2181:2181"
 
   broker:
-    image: apache/kafka:latest
+    image: confluentinc/cp-kafka:latest
     hostname: broker
     container_name: broker
     ports:
