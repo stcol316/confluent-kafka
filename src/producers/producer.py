@@ -60,24 +60,25 @@ def fetch_data(url, topic, lat, long, params):
     paramStr=(f'{{"latitude": {lat}, "longitude": {long}, "current": {params}}}')
     print(paramStr)
     p = json.loads(paramStr)
-
+    
     try:
         while True:
-            response = requests.get(url, p)
-
             # If we get a successful response send the data to kafka
+            response = requests.get(url, p)
             if response.status_code == 200:
                 print(f"{datetime.now()} {response.json()}")
                 queue_data(response.json(), topic)
+                # break
             else:
                 print(f"{datetime.now()} Error fetching data: {response.status_code}")
-                producer.flush()
                 sys.exit(1)
 
             # Sleep for a minute before fetching the data again
             time.sleep(60)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        print(f"{datetime.now()} Error: {e}")
     finally:
         producer.flush()
 

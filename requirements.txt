@@ -1,0 +1,4 @@
+confluent-kafka
+pytest
+requests
+click

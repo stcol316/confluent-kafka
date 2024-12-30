@@ -48,6 +48,8 @@ def poll_data(topic):
             time.sleep(10)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        print(f"{datetime.now()} Error: {e}")
     finally:
         # Leave group and commit final offsets
         consumer.close()
