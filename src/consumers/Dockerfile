@@ -9,6 +9,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Copy the consumer script into the container
 COPY consumer.py .
+COPY weather-consumer.py .
 COPY requirements.txt /tmp/
 
 # Install dependencies from our requirements file
