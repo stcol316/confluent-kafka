@@ -57,3 +57,14 @@ services:
     environment:
       KAFKA_BROKER: broker:29092
     command: python weather-consumer.py
+
+  consumer_temperature_2m:
+    build:
+      context: ./consumers
+    container_name: consumer_temperature_2m
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: broker:29092
+    command: python consumer.py --topic temperature_2m

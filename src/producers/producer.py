@@ -14,7 +14,7 @@ import logging
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
@@ -62,11 +62,11 @@ producer = Producer(config)
     help="API call parameters as json string",
 )
 def fetch_data(url, topic, lat, long, params):
-    print(f"{datetime.now()} URL: {url}\nTopic: {topic}\nLatitude: {lat}\nLongitude: {long}\nParams: {params}\n")
+    logger.info(f"URL: {url}\nTopic: {topic}\nLatitude: {lat}\nLongitude: {long}\nParams: {params}\n")
 
     # load params to be usable by requests
     paramStr=(f'{{"latitude": {lat}, "longitude": {long}, "current": {params}}}')
-    print(paramStr)
+    logger.debug(paramStr)
     p = json.loads(paramStr)
 
     try:
@@ -75,11 +75,11 @@ def fetch_data(url, topic, lat, long, params):
 
             # If we get a successful response send the data to kafka
             if response.status_code == 200:
-                print(f"{datetime.now()} {response.json()}")
+                logger.info(f"{response.json()}")
                 queue_data(response.json(), topic)
                 # break
             else:
-                print(f"{datetime.now()} Error fetching data: {response.status_code}")
+                logger.info(f"Error fetching data: {response.status_code}")
                 # sys.exit(1)
 
             # Sleep before fetching the data again
@@ -99,6 +99,5 @@ def queue_data(data, topic):
 
 
 if __name__ == "__main__":
-    logger.info("INFOOO")
-    logger.debug("DEBUGGG")
+    logger.debug("Entered main")
     fetch_data()

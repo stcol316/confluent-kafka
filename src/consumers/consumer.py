@@ -9,7 +9,7 @@ import logging
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def poll_data(topic):
     try:
         consumer.subscribe([topic])
     except Exception as e:
-        logger.info(f"{datetime.now()} Error subscribing to topic: {topic} \n Error: {e}")
+        logger.info(f"Error subscribing to topic: {topic} \n Error: {e}")
     
      # Poll for new messages from Kafka and print them.
     try:
@@ -52,20 +52,20 @@ def poll_data(topic):
                 # Initial message consumption may take up to
                 # `session.timeout.ms` for the consumer group to
                 # rebalance and start consuming
-                logger.info(f"{datetime.now()} Waiting...")
+                logger.info(f"Waiting...")
             elif msg.error():
                 logger.debug(f"Debug: Message is error")
                 logger.info(f"ERROR: {msg.error()}")
             else:
                 logger.debug(f"Debug: Message is message")
-                logger.info(f"{datetime.now()} {msg.value()}")
+                logger.info(f"{msg.value()}")
             time.sleep(10)
     except KeyboardInterrupt:
         logger.debug(f"Debug: Keyboard interrupt")
         pass
     except Exception as e:
         logger.debug(f"Debug: Exception")
-        logger.info(f"{datetime.now()} Error: {e}")
+        logger.info(f"Error: {e}")
     finally:
         # Leave group and commit final offsets
         consumer.close()

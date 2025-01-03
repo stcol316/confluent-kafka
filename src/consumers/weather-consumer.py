@@ -10,7 +10,7 @@ import json
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def poll_data(topic):
     try:
         consumer.subscribe([topic])
     except Exception as e:
-        logger.info(f"{datetime.now()} Error subscribing to topic: {topic} \n Error: {e}")
+        logger.info(f"Error subscribing to topic: {topic} \n Error: {e}")
     
      # Poll for new messages from Kafka and print them.
     try:
@@ -66,7 +66,7 @@ def poll_data(topic):
                 # Initial message consumption may take up to
                 # `session.timeout.ms` for the consumer group to
                 # rebalance and start consuming
-                print(f"{datetime.now()} Waiting...")
+                logger.info(f"Waiting...")
             elif msg.error():
                 logger.debug(f"Debug: Message is error")
                 logger.info(f"ERROR: {msg.error()}")
@@ -86,7 +86,7 @@ def poll_data(topic):
         consumer.close()
 
 def route_data(data):
-    logger.info(f"{datetime.now()} Routing data: {data['current']}")
+    logger.info(f"Routing data: {data['current']}")
     
     for key, value in data["current"].items():
         if key == "time" or key == "interval":
@@ -95,7 +95,7 @@ def route_data(data):
             queue_data(key, str(value))
             
 def queue_data(topic, data):
-    logger.info(f"{datetime.now()} Sending data: {data} to topic: {topic}")
+    logger.info(f"Sending data: {data} to topic: {topic}")
     # Topic will be automatically created if it does not exist
     producer.produce(topic, value=data)
     producer.flush()
