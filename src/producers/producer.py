@@ -10,6 +10,14 @@ import time
 import json
 import sys
 from datetime import datetime
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 # Configure Producer
 config = {
@@ -60,25 +68,24 @@ def fetch_data(url, topic, lat, long, params):
     paramStr=(f'{{"latitude": {lat}, "longitude": {long}, "current": {params}}}')
     print(paramStr)
     p = json.loads(paramStr)
-    
+
     try:
         while True:
-            # If we get a successful response send the data to kafka
             response = requests.get(url, p)
+
+            # If we get a successful response send the data to kafka
             if response.status_code == 200:
                 print(f"{datetime.now()} {response.json()}")
                 queue_data(response.json(), topic)
                 # break
             else:
                 print(f"{datetime.now()} Error fetching data: {response.status_code}")
-                sys.exit(1)
+                # sys.exit(1)
 
-            # Sleep for a minute before fetching the data again
-            time.sleep(60)
+            # Sleep before fetching the data again
+            time.sleep(20)
     except KeyboardInterrupt:
         pass
-    except Exception as e:
-        print(f"{datetime.now()} Error: {e}")
     finally:
         producer.flush()
 
@@ -92,4 +99,6 @@ def queue_data(data, topic):
 
 
 if __name__ == "__main__":
+    logger.info("INFOOO")
+    logger.debug("DEBUGGG")
     fetch_data()
