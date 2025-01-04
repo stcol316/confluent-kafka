@@ -4,7 +4,6 @@ import sys
 from confluent_kafka import Consumer, Producer
 import click
 import time
-from datetime import datetime
 import logging
 import json
 
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # TODO: This should be set using environment variables
 # Configure Consumer
-config = {
+consumer_config = {
     # User-specific properties that you must set
     'bootstrap.servers': 'broker:29092',
 
@@ -26,12 +25,9 @@ config = {
     'auto.offset.reset': 'earliest'
 }
 
-# Create Consumer instance
-consumer = Consumer(config)
-
 # # TODO: This should be set using environment variables
 # # Configure Producer
-config = {
+producer_config = {
     # User-specific properties that you must set
     # Port can be found as Plaintext Ports after running confluent local kafka start
     "bootstrap.servers": "broker:29092",
@@ -39,7 +35,10 @@ config = {
     "acks": "all",
 }
 
-producer = Producer(config)
+consumer = Consumer(consumer_config)
+producer = Producer(producer_config)
+IGNORE_LIST = ["time", "interval"]
+POLL_INTERVAL = 10
 
 # Click sets command line params and their defaults
 @click.command()
@@ -54,7 +53,7 @@ def poll_data(topic):
     try:
         consumer.subscribe([topic])
     except Exception as e:
-        logger.info(f"Error subscribing to topic: {topic} \n Error: {e}")
+        logger.error(f"Error subscribing to topic: {topic} \n Error: {e}")
     
      # Poll for new messages from Kafka and print them.
     try:
@@ -69,18 +68,18 @@ def poll_data(topic):
                 logger.info(f"Waiting...")
             elif msg.error():
                 logger.debug(f"Debug: Message is error")
-                logger.info(f"ERROR: {msg.error()}")
+                logger.error(f"Merrsage returned with error: {msg.error()}")
             else:
                 logger.debug(f"Debug: Message is message")
-                # logger.info(f"{datetime.now()} {msg.value()}")
+                logger.debug(f"{msg.value()}")
                 route_data(json.loads(msg.value()))
-            time.sleep(10)
+            time.sleep(POLL_INTERVAL)
     except KeyboardInterrupt:
         logger.debug(f"Debug: Keyboard interrupt")
         pass
-    except Exception as e:
+    except Exception as err:
         logger.debug(f"Debug: Exception")
-        logger.info(f"{datetime.now()} Error: {e}")
+        logger.error(f"{err}")
     finally:
         # Leave group and commit final offsets
         consumer.close()
@@ -88,8 +87,9 @@ def poll_data(topic):
 def route_data(data):
     logger.info(f"Routing data: {data['current']}")
     
+    # Separate the relevant returned data into individual topics
     for key, value in data["current"].items():
-        if key == "time" or key == "interval":
+        if key in IGNORE_LIST:
             continue
         else:
             queue_data(key, str(value))

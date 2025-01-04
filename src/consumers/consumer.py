@@ -4,7 +4,6 @@ import sys
 from confluent_kafka import Consumer
 import click
 import time
-from datetime import datetime
 import logging
 
 logging.basicConfig(
@@ -27,6 +26,7 @@ config = {
 
 # Create Consumer instance
 consumer = Consumer(config)
+POLL_INTERVAL = 10
 
 # Click sets command line params and their defaults
 @click.command()
@@ -41,7 +41,7 @@ def poll_data(topic):
     try:
         consumer.subscribe([topic])
     except Exception as e:
-        logger.info(f"Error subscribing to topic: {topic} \n Error: {e}")
+        logger.error(f"Error subscribing to topic: {topic} \n Error: {e}")
     
      # Poll for new messages from Kafka and print them.
     try:
@@ -55,17 +55,17 @@ def poll_data(topic):
                 logger.info(f"Waiting...")
             elif msg.error():
                 logger.debug(f"Debug: Message is error")
-                logger.info(f"ERROR: {msg.error()}")
+                logger.error(f"Message returned with error: {msg.error()}")
             else:
                 logger.debug(f"Debug: Message is message")
                 logger.info(f"{msg.value()}")
-            time.sleep(10)
+            time.sleep(POLL_INTERVAL)
     except KeyboardInterrupt:
         logger.debug(f"Debug: Keyboard interrupt")
         pass
-    except Exception as e:
+    except Exception as err:
         logger.debug(f"Debug: Exception")
-        logger.info(f"Error: {e}")
+        logger.error(f"{err}")
     finally:
         # Leave group and commit final offsets
         consumer.close()

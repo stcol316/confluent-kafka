@@ -9,7 +9,6 @@ import click
 import time
 import json
 import sys
-from datetime import datetime
 import logging
 
 logging.basicConfig(
@@ -29,7 +28,7 @@ config = {
 }
 
 producer = Producer(config)
-
+POLL_INTERVAL = 10
 
 # Fetch some data
 # Click sets command line params and their defaults
@@ -79,11 +78,11 @@ def fetch_data(url, topic, lat, long, params):
                 queue_data(response.json(), topic)
                 # break
             else:
-                logger.info(f"Error fetching data: {response.status_code}")
+                logger.error(f"Error fetching data: {response}")
                 # sys.exit(1)
 
             # Sleep before fetching the data again
-            time.sleep(20)
+            time.sleep(POLL_INTERVAL)
     except KeyboardInterrupt:
         pass
     finally:
