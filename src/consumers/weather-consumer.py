@@ -94,10 +94,17 @@ def route_data(data):
         else:
             queue_data(key, str(value))
             
+def callback(err, event):    
+    if err:
+        logger.error(f'Produce to topic {event.topic()} failed for event: {event.key()}')
+    else:
+        val = event.value().decode('utf8')
+        logger.info(f'{val} sent to {event.topic()} on partition {event.partition()}.')
+              
 def queue_data(topic, data):
-    logger.info(f"Sending data: {data} to topic: {topic}")
     # Topic will be automatically created if it does not exist
-    producer.produce(topic, value=data)
+    logger.info(f"Sending data to topic: {topic}")
+    producer.produce(topic, value=data, on_delivery=callback)
     producer.flush()
      
 if __name__ == '__main__':

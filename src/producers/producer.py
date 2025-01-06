@@ -74,7 +74,6 @@ def fetch_data(url, topic, lat, long, params):
 
             # If we get a successful response send the data to kafka
             if response.status_code == 200:
-                logger.info(f"{response.json()}")
                 queue_data(response.json(), topic)
                 # break
             else:
@@ -88,14 +87,20 @@ def fetch_data(url, topic, lat, long, params):
     finally:
         producer.flush()
 
-
+def callback(err, event):    
+    if err:
+        logger.error(f'Produce to topic {event.topic()} failed for event: {event.key()}')
+    else:
+        val = event.value().decode('utf8')
+        logger.info(f'{val} sent to {event.topic()} on partition {event.partition()}.')
+        
 def queue_data(data, topic):
     data_json = json.dumps(data)
 
     # Topic will be automatically created if it does not exist
-    producer.produce(topic, value=data_json)
+    logger.info(f"Sending data to topic: {topic}")
+    producer.produce(topic, value=data_json, on_delivery=callback)
     producer.flush()
-
 
 if __name__ == "__main__":
     logger.debug("Entered main")
