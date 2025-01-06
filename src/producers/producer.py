@@ -78,10 +78,12 @@ def fetch_data(url, topic, lat, long, params):
                 # break
             else:
                 logger.error(f"Error fetching data: {response}")
-                # sys.exit(1)
+                sys.exit(1)
 
             # Sleep before fetching the data again
             time.sleep(POLL_INTERVAL)
+    except Exception as  e:
+        logger.error(f"Error: {e}")
     except KeyboardInterrupt:
         pass
     finally:

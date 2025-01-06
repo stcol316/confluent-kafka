@@ -3,6 +3,14 @@ from unittest.mock import Mock, patch
 from src.producers.producer import fetch_data, queue_data
 from click.testing import CliRunner
 
+TEST_ARGS = [
+        "--url", "https://api.open-meteo.com/v1/forecast",
+        "--topic", "test_topic",
+        "--lat", 54.51,
+        "--long", -6.04,
+        "--params", '["temperature_2m"]'
+    ]
+
 # Mock response for the weather API
 @pytest.fixture
 def mock_weather_response():
@@ -44,41 +52,39 @@ def test_fetch_data_success(mock_requests_get, mock_producer):
     print("Testing fetch_data success")
     
     runner = CliRunner()
-    args = [
-        "--url", "https://api.open-meteo.com/v1/forecast",
-        "--topic", "test_topic",
-        "--lat", 54.51,
-        "--long", -6.04,
-        "--params", '["temperature_2m"]'
-    ]
-
-    print(f"Mock before invoke: {mock_requests_get.call_count}")
-
-    with patch('requests.get', mock_requests_get):
-        result = runner.invoke(fetch_data, args)
-        print(f"Mock after invoke: {mock_requests_get.call_count}")
-        print(f"Mock calls: {mock_requests_get.mock_calls}")
-        print(f"Click command result: {result.exit_code}")
-        print(f"Click command output: {result.output}")
-   
-    mock_requests_get.assert_called_once()
-
+    counter =  0
+    mock_get = Mock()
     
+    #Set up mock to succeed once and exit on the second loop
+    def side_effect(*args, **kwargs):
+        nonlocal counter
+        counter += 1
+        
+        mock_response = Mock()
+        if counter == 1:
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": "test"}
+        else:
+            mock_response.status_code = 500
+            mock_response.json.side_effect = Exception("BOOOOM")
+        return mock_response
+
+    mock_get.side_effect = side_effect
+    with patch('requests.get', mock_get), \
+         patch('time.sleep', return_value=None):
+             
+        result = runner.invoke(fetch_data, TEST_ARGS)
+   
+    print(f"Mock after invoke: {mock_get.call_count}")
+    assert mock_get.call_count == 2
+       
 def test_fetch_data_api_error(mock_requests_get, mock_producer):
     print("Testing fetch_data api error")
+    
     # Setup mock to return error
     mock_requests_get.return_value.status_code = 404
     runner = CliRunner()
-    
-    args = [
-        "--url", "https://api.open-meteo.com/v1/forecast",
-        "--topic", "test_topic",
-        "--lat", 54.51,
-        "--long", -6.04,
-        "--params", '["temperature_2m"]'
-    ]
-
-    result = runner.invoke(fetch_data, args)
+    result = runner.invoke(fetch_data, TEST_ARGS)
     print(f"Result: {result.exit_code}")
     
     assert result.exit_code == 1
@@ -86,18 +92,12 @@ def test_fetch_data_api_error(mock_requests_get, mock_producer):
 
 def test_fetch_data_exception(mock_requests_get, mock_producer):
     print("Testing fetch_data exception")
+    
     # Setup mock to raise an exception
     mock_requests_get.side_effect = Exception("Test error")
     
-    args = [
-        "--url", "https://api.open-meteo.com/v1/forecast",
-        "--topic", "test_topic",
-        "--lat", 54.51,
-        "--long", -6.04,
-        "--params", '["temperature_2m"]'
-    ]
-    
     runner = CliRunner()
-    runner.invoke(fetch_data, args)
+    runner.invoke(fetch_data, TEST_ARGS)
     
     mock_producer.flush.assert_called_once()
+    
