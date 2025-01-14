@@ -1,3 +1,4 @@
 requests
 confluent-kafka
 click
+python-dotenv

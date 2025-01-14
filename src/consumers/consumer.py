@@ -1,10 +1,14 @@
 #!/usr/bin/env python
  
 import sys
-from confluent_kafka import Consumer
+from confluent_kafka import Consumer, KafkaException, KafkaError
 import click
 import time
 import logging
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,20 +17,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# TODO: This should be set using environment variables
 # Configure Consumer
 config = {
     # User-specific properties that you must set
-    'bootstrap.servers': 'broker:29092',
+    'bootstrap.servers': f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}",
 
     # Fixed properties
-    'group.id':          'weather-data-consumers',
+    'group.id':          f"{os.environ.get('CONSUMER_GROUP', 'weather-data-consumers')}",
     'auto.offset.reset': 'earliest'
 }
 
 # Create Consumer instance
 consumer = Consumer(config)
-POLL_INTERVAL = 10
+MAX_RETRIES=10
 
 # Click sets command line params and their defaults
 @click.command()
@@ -40,34 +43,74 @@ def poll_data(topic):
     # Subscribe to topic
     try:
         consumer.subscribe([topic])
+    except KafkaException as ke:
+        logger.error(f"Kafka subscription error: {ke}")
+        return
     except Exception as e:
         logger.error(f"Error subscribing to topic: {topic} \n Error: {e}")
     
-     # Poll for new messages from Kafka and print them.
+    current_retries = 0
+    # Poll for new messages from Kafka and print them.
     try:
         while True:
-            msg = consumer.poll(0)
-            if msg is None:
-                logger.debug(f"Debug: Message is None")
-                # Initial message consumption may take up to
-                # `session.timeout.ms` for the consumer group to
-                # rebalance and start consuming
-                logger.info(f"Waiting...")
-            elif msg.error():
-                logger.debug(f"Debug: Message is error")
-                logger.error(f"Message returned with error: {msg.error()}")
-            else:
-                logger.debug(f"Debug: Message is message")
+            try:
+                msg = consumer.poll(30)
+                if msg is None:
+                    logger.debug("Debug: Message is None")
+                    logger.info("Waiting...")
+                    continue
+                
+                if msg.error():
+                    if msg.error().retriable():
+                        logger.error(f"Retryable error encountered: {msg.error()}")
+                        current_retries +=1
+                        if current_retries > MAX_RETRIES: 
+                            logger.error("Maximum retries exceeded. Exiting")
+                            break
+                        continue                     
+                    else:
+                        if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                            logger.info(f"Subscribed topic not available: {topic}")
+                            current_retries +=1
+                            time.sleep(int(os.environ.get("POLL_INTERVAL", 10)))
+                            continue
+                        logger.error(f"Fatal error encountered: {msg.error()}")
+                        continue
+                
+                # Logic to Process valid message here
+                logger.debug("Debug: Message is valid")
                 logger.info(f"{msg.value()}")
-            time.sleep(POLL_INTERVAL)
+                current_retries = 0
+            except KafkaException as ke:
+                logger.error(f"Kafka Exception occurred: {ke}")
+                error = ke.args[0]
+                if error.retriable():
+                    logger.error(f"Retryable error: {error}")
+                    current_retries +=1
+                    if current_retries > MAX_RETRIES: 
+                        logger.error("Maximum retries exceeded. Exiting")
+                        break
+                    continue   
+                else:
+                    logger.error(f"Fatal error: {error}")
+                    break
     except KeyboardInterrupt:
-        logger.debug(f"Debug: Keyboard interrupt")
+        logger.debug("Debug: Keyboard interrupt")
         pass
     except Exception as err:
-        logger.debug(f"Debug: Exception")
-        logger.error(f"{err}")
+        logger.debug("Debug: Exception")
+        logger.error(f"Unexpected error: {err}")
     finally:
         # Leave group and commit final offsets
+        shutdown_consumer()
+
+def shutdown_consumer():
+    logger.info("Shutting down consumer...")
+    try:
+        consumer.commit()  # Commit any pending offsets
+    except KafkaException as e:
+        logger.error(f"Error committing offsets: {e}")
+    finally:
         consumer.close()
         
 if __name__ == '__main__':

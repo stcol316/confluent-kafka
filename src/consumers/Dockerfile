@@ -1,5 +1,5 @@
-# Use Python 3.8 as the base image
-FROM python:3.8-slim
+# Use Python as the base image
+FROM python:3.13-slim
 
 # Set working directory inside the container
 WORKDIR /app
@@ -8,9 +8,11 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
 # Copy the consumer script into the container
-COPY consumer.py .
-COPY weather-consumer.py .
-COPY requirements.txt /tmp/
+# The root dir is src/
+COPY ./consumers/consumer.py .
+COPY ./consumers/weather-consumer.py .
+COPY ./consumers/requirements.txt /tmp/
+COPY .env .
 
 # Install dependencies from our requirements file
 RUN pip install -r /tmp/requirements.txt

@@ -1,70 +1,93 @@
 services:
-  zookeeper:
-    image: wurstmeister/zookeeper:latest
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-    ports:
-      - "2181:2181"
 
   broker:
     image: confluentinc/cp-kafka:latest
-    hostname: broker
-    container_name: broker
+    hostname: ${BROKER_NAME}
+    container_name: ${BROKER_NAME}
     ports:
-      - 9092:9092
+      - ${KAFKA_CLIENT_PORT}:${KAFKA_CLIENT_PORT}
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${BROKER_NAME}:${BROKER_LISTENER_PORT},PLAINTEXT_HOST://localhost:${KAFKA_CLIENT_PORT}
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_NODE_ID: 1
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker:29093
-      KAFKA_LISTENERS: PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@${BROKER_NAME}:${BROKER_CONTROLLER_PORT}
+      KAFKA_LISTENERS: PLAINTEXT://${BROKER_NAME}:${BROKER_LISTENER_PORT},CONTROLLER://${BROKER_NAME}:${BROKER_CONTROLLER_PORT},PLAINTEXT_HOST://0.0.0.0:${KAFKA_CLIENT_PORT}
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server broker:29092 --list"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server ${BROKER_NAME}:${BROKER_LISTENER_PORT} --list"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  # ksqldb-server:
+  #   image: confluentinc/ksqldb-server:latest
+  #   hostname: ksqldb-server
+  #   container_name: ksqldb-server
+  #   depends_on:
+  #     - broker
+  #   ports:
+  #     - "8088:8088"
+  #   environment:
+  #     KSQL_LISTENERS: http://0.0.0.0:8088
+  #     KSQL_BOOTSTRAP_SERVERS: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
+  #     KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+  #     KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+  #     KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+  #     KSQL_KSQL_CONNECT_URL: "http://connect:8083"
+
+  # ksqldb-cli:
+  #   image: confluentinc/ksqldb-cli:latest
+  #   hostname: ksqldb-cli
+  #   container_name: ksqldb-cli
+  #   depends_on:
+  #     - broker
+  #     - ksqldb-server
+  #   entrypoint: /bin/sh
+  #   tty: true
+
   producer:
     build:
-      context: ./producers
+      context: .
+      dockerfile: ./producers/Dockerfile
     container_name: producer
     depends_on:
       broker:
         condition: service_healthy
     environment:
-      KAFKA_BROKER: broker:29092
-    # command: python producer.py
+      KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
+    # command: |
+    #   python producer.py --params '{"latitude":54.51,"longitude": -6.04,"hourly": ["temperature_2m"]}'
     command: python producer.py --params '["temperature_2m", "relative_humidity_2m", "precipitation", "rain", "showers", "cloud_cover", "wind_speed_10m"]'
   
   consumer:
     build:
-      context: ./consumers
+      context: .
+      dockerfile: ./consumers/Dockerfile
     container_name: weather-consumer
     depends_on:
       broker:
         condition: service_healthy
     environment:
-      KAFKA_BROKER: broker:29092
+      KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
     command: python weather-consumer.py
 
   consumer_temperature_2m:
     build:
-      context: ./consumers
+      context: .
+      dockerfile: ./consumers/Dockerfile
     container_name: consumer_temperature_2m
     depends_on:
       broker:
         condition: service_healthy
     environment:
-      KAFKA_BROKER: broker:29092
+      KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
     command: python consumer.py --topic temperature_2m

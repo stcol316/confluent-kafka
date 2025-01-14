@@ -2,3 +2,4 @@ confluent-kafka
 pytest
 requests
 click
+python_dotenv
