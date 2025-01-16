@@ -9,8 +9,9 @@ ENV PYTHONUNBUFFERED=1
 
 # Copy the producer script into the container
 # The root dir is src/
-COPY ./producers/producer.py .
+COPY ./producers/stock_producer.py .
 COPY ./producers/requirements.txt /tmp/
+COPY ./producers/stock_producer.py .
 COPY .env .
 
 # Install dependencies (e.g., confluent-kafka for Kafka producer)

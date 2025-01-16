@@ -54,7 +54,7 @@ services:
   #   entrypoint: /bin/sh
   #   tty: true
 
-  producer:
+  weather-producer:
     build:
       context: .
       dockerfile: ./producers/Dockerfile
@@ -66,9 +66,9 @@ services:
       KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
     # command: |
     #   python producer.py --params '{"latitude":54.51,"longitude": -6.04,"hourly": ["temperature_2m"]}'
-    command: python producer.py --params '["temperature_2m", "relative_humidity_2m", "precipitation", "rain", "showers", "cloud_cover", "wind_speed_10m"]'
+    command: python weather_producer.py --params '["temperature_2m", "relative_humidity_2m", "precipitation", "rain", "showers", "cloud_cover", "wind_speed_10m"]'
   
-  consumer:
+  weather-consumer:
     build:
       context: .
       dockerfile: ./consumers/Dockerfile

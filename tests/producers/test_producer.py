@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
-from src.producers.producer import fetch_data, queue_data
+from src.producers.weather_producer import fetch_data, queue_data
 from click.testing import CliRunner
 
 TEST_ARGS = [
@@ -30,7 +30,7 @@ def mock_requests_get(mock_weather_response):
 @pytest.fixture
 def mock_producer():
     print("Mocking producer")
-    with patch('src.producers.producer.producer') as mock_prod:
+    with patch('src.producers.weather_producer.producer') as mock_prod:
         mock_prod.produce = Mock()
         mock_prod.flush = Mock()
         yield mock_prod
