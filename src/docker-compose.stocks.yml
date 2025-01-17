@@ -36,7 +36,57 @@ services:
     depends_on:
       broker:
         condition: service_healthy
+      stock-processor:
+        condition: service_started
     environment:
       KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
     command: python stock_producer.py
+
+  jobmanager:
+    image: flink:latest
+    container_name: jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  taskmanager:
+    image: flink:latest
+    container_name: taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        taskmanager.memory.process.size: 1728m
+    scale: 1
+
+  stock-processor:
+    build:
+      context: .
+      dockerfile: ./processors/Dockerfile
+    container_name: stock-processor
+    depends_on:
+      broker:
+        condition: service_healthy
+      jobmanager:
+        condition: service_healthy
+    environment:
+      - KAFKA_BROKER=${BROKER_NAME}:${BROKER_LISTENER_PORT}
+      - FLINK_JOBMANAGER_HOST=jobmanager
+      - FLINK_JOBMANAGER_PORT=6123
+    volumes:
+      - ./processors:/opt/processors
+    command: python stock_processor.py
   

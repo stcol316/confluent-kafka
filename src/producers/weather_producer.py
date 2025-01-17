@@ -96,6 +96,9 @@ def fetch_data(url, topic, lat, long, params):
                         current_retries = 0
                     else:
                         current_retries+=1
+                        if current_retries > MAX_RETRIES: 
+                            logger.error("Maximum retries exceeded. Exiting")
+                            break
                 else:
                     logger.error(f"Error fetching data: {response}")
                     current_retries +=1

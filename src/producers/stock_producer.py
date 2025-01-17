@@ -63,7 +63,7 @@ MAX_RETRIES=10
 @click.option(
     "--timespan",
     type=str,
-    default='hour',
+    default='day',
     help="The granularity of the data [second, minute, hour, day, week, month, quarter, year]",
 )
 @click.option(
@@ -74,7 +74,6 @@ MAX_RETRIES=10
 )
 def fetch_data(ticker, start, end, timespan, multi):
     logger.info(f"Ticker: {ticker}\nFrom: {start}\nTo: {end}\nTimespan: {timespan}\nMultiplier: {multi}")
-
     # load params to be usable by requests
     reqStr=f"{os.environ['STOCK_URL']}ticker/{ticker}/range/{multi}/{timespan}/{start}/{end}"
     logger.debug(f"Request String: {reqStr}")
@@ -96,6 +95,9 @@ def fetch_data(ticker, start, end, timespan, multi):
                 current_retries = 0
             else:
                 current_retries+=1
+                if current_retries > MAX_RETRIES: 
+                    logger.error("Maximum retries exceeded. Exiting")
+                    break
         logger.debug("DONE FETCHING")
             
     except Exception as  e:
