@@ -18,8 +18,8 @@ load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,15 @@ config = {
     "bootstrap.servers": f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}",
     # Fixed properties
     "acks": "all",
-    'retries': 3,
-    'retry.backoff.ms': 1000,
-    'delivery.timeout.ms': 30000,
-    'message.send.max.retries': 3,
+    "retries": 3,
+    "retry.backoff.ms": 1000,
+    "delivery.timeout.ms": 30000,
+    "message.send.max.retries": 3,
 }
 
 producer = None
-MAX_RETRIES=10
+MAX_RETRIES = 10
+
 
 class StockSnapshot:
     def __init__(self, ticker, data):
@@ -55,7 +56,8 @@ class StockSnapshot:
     def datetime(self):
         """Convert timestamp to datetime object"""
         return datetime.fromtimestamp(self.timestamp / 1000.0)
-    
+
+
 # Fetch some data
 # Click sets command line params and their defaults
 @click.command()
@@ -68,7 +70,7 @@ class StockSnapshot:
 @click.option(
     "--start",
     type=str,
-    default= "2022-01-09",
+    default="2022-01-09",
     help="The starting date from which you want to analyse data formatted to YYYY-MM-DD or a millisecond timestamp (Max 2 yrs)",
 )
 @click.option(
@@ -80,7 +82,7 @@ class StockSnapshot:
 @click.option(
     "--timespan",
     type=str,
-    default='day',
+    default="day",
     help="The granularity of the data [second, minute, hour, day, week, month, quarter, year]",
 )
 @click.option(
@@ -90,15 +92,17 @@ class StockSnapshot:
     help="Timespan multiplier e.g. a timespan of 'hour' with a multiplyer of '2' will retrieve data for ever 2 hours",
 )
 def fetch_data(ticker, start, end, timespan, multi):
-    logger.info(f"Ticker: {ticker}\nFrom: {start}\nTo: {end}\nTimespan: {timespan}\nMultiplier: {multi}")
+    logger.info(
+        f"Ticker: {ticker}\nFrom: {start}\nTo: {end}\nTimespan: {timespan}\nMultiplier: {multi}"
+    )
     # load params to be usable by requests
-    reqStr=f"{os.environ['STOCK_URL']}ticker/{ticker}/range/{multi}/{timespan}/{start}/{end}"
+    reqStr = f"{os.environ['STOCK_URL']}ticker/{ticker}/range/{multi}/{timespan}/{start}/{end}"
     logger.debug(f"Request String: {reqStr}")
-      
+
     try:
         topic = os.environ.get("STOCK_TOPIC")
         create_producer()
-        
+
         # Fetch historic data for the stock
         for data in fetch_all_historic_data(reqStr, None):
             sdata = serialize_data(data, ticker)
@@ -111,13 +115,13 @@ def fetch_data(ticker, start, end, timespan, multi):
                 # Reset retry counter
                 current_retries = 0
             else:
-                current_retries+=1
-                if current_retries > MAX_RETRIES: 
+                current_retries += 1
+                if current_retries > MAX_RETRIES:
                     logger.error("Maximum retries exceeded. Exiting")
                     break
         logger.debug("DONE FETCHING")
-            
-    except Exception as  e:
+
+    except Exception as e:
         logger.error(f"Unhandled error: {e}")
     except KeyboardInterrupt:
         pass
@@ -125,16 +129,17 @@ def fetch_data(ticker, start, end, timespan, multi):
         remaining = producer.flush(timeout=30)
         if remaining > 0:
             logger.info(f"{remaining} messages not delivered")
- 
+
+
 def fetch_all_historic_data(reqStr, next_url=None):
     logger.info("Fetching historic data")
     current_retries = 0
     response = fetch_historic_data(reqStr, next_url)
-    
+
     if response.status_code == 200:
         current_retries = 0
         data = response.json()
-        
+
         # Yield current page results and continue processing
         yield from data["results"]
 
@@ -144,22 +149,23 @@ def fetch_all_historic_data(reqStr, next_url=None):
             logger.debug("............Fetching next page.......")
             # Max 5 request per minute so we sleep for 15 seconds
             time.sleep(int(os.environ.get("REQUEST_INTERVAL", 15)))
-            
+
             # Recursively fetch data until we reach the end
             yield from fetch_all_historic_data(reqStr, next_url)
-        
+
         logger.info("Finished gathering historic data")
     else:
         logger.error(f"Error fetching data: {response}")
-        current_retries +=1
-        
-        if current_retries > MAX_RETRIES: 
+        current_retries += 1
+
+        if current_retries > MAX_RETRIES:
             logger.error("Maximum retries exceeded. Exiting")
             return False
-        
+
         # Max 5 request per minute so we sleep for 15 seconds
         time.sleep(int(os.environ.get("REQUEST_INTERVAL", 15)))
-    
+
+
 def fetch_historic_data(reqStr, next_url=None):
     request = next_url if next_url else reqStr
     response = requests.get(request, params = {
@@ -167,51 +173,54 @@ def fetch_historic_data(reqStr, next_url=None):
             })
     logging.debug(f"fetch_historic_data: {response}")
     return response
-          
+
+
 def serialize_data(data, ticker):
     logger.debug("Serialising data")
     try:
-        #TODO:Kafka Schema?
+        # TODO:Kafka Schema?
         stock_snapshot = StockSnapshot(ticker, data)
-        
+
         # Convert to dictionary for JSON serialization
         serializable_data = {
-            'ticker': stock_snapshot.ticker,
-            'timestamp': stock_snapshot.timestamp,
-            'datetime': stock_snapshot.datetime.isoformat(),
-            'open': stock_snapshot.open_price,
-            'close': stock_snapshot.close_price,
-            'high': stock_snapshot.high_price,
-            'low': stock_snapshot.low_price,
-            'volume': stock_snapshot.volume,
-            'vwap': stock_snapshot.vwap,
-            'number_of_trades': stock_snapshot.number_of_trades
+            "ticker": stock_snapshot.ticker,
+            "timestamp": stock_snapshot.timestamp,
+            "datetime": stock_snapshot.datetime.isoformat(),
+            "open": stock_snapshot.open_price,
+            "close": stock_snapshot.close_price,
+            "high": stock_snapshot.high_price,
+            "low": stock_snapshot.low_price,
+            "volume": stock_snapshot.volume,
+            "vwap": stock_snapshot.vwap,
+            "number_of_trades": stock_snapshot.number_of_trades,
         }
         return json.dumps(serializable_data)
     except Exception as err:
         logger.error(f"Error serializing message: {err}")
         return None
-    
-def delivery_callback(err, event):    
+
+
+def delivery_callback(err, event):
     if err:
         # If err is retryable we raise Kafka exception in queue_data()
         if err.retriable():
             raise KafkaException(err)
         else:
             # If non-retryable we try to produce to dead letter queue
-            logger.error(f'Produce to topic {event.topic()} failed with error: {err}')
+            logger.error(f"Produce to topic {event.topic()} failed with error: {err}")
             try:
-                producer.produce('dlq', key=event.key(), value=event.value())
+                producer.produce("dlq", key=event.key(), value=event.value())
             except Exception as e:
-                logger.error(f'Failed to send to DLQ: {e}')
+                logger.error(f"Failed to send to DLQ: {e}")
     else:
-        val = event.value().decode('utf8')
-        logger.debug(f'{val} sent to {event.topic()} on partition {event.partition()}.')
-        
+        val = event.value().decode("utf8")
+        logger.debug(f"{val} sent to {event.topic()} on partition {event.partition()}.")
+
+
 def queue_data(data, topic):
     # Topic will be automatically created if it does not exist
     logger.info(f"Sending data to topic: {topic}")
-    
+
     current_retries = 0
     while current_retries < MAX_RETRIES:
         try:
@@ -222,7 +231,7 @@ def queue_data(data, topic):
             error = ke.args[0]
             if error.retriable():
                 logger.error(f"Retryable producer error: {error}")
-                current_retries +=1
+                current_retries += 1
             else:
                 logger.error(f"Non-retryable producer error: {error}")
                 return False
@@ -232,12 +241,14 @@ def queue_data(data, topic):
             producer.poll(1)
         except Exception as e:
             logger.error(f"Unexpected error while producing: {e}")
-            return False        
+            return False
+
 
 def create_producer():
     global producer
     producer = Producer(config)
     return producer
+
 
 if __name__ == "__main__":
     logger.debug("Entered main")
