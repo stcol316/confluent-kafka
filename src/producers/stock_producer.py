@@ -39,6 +39,23 @@ config = {
 producer = None
 MAX_RETRIES=10
 
+class StockSnapshot:
+    def __init__(self, ticker, data):
+        self.ticker = ticker
+        self.volume = data['v']          # The trading volume of the symbol in the given time period
+        self.vwap = data['vw']           # The volume weighted average price
+        self.open_price = data['o']      # The open price for the symbol in the given time period
+        self.close_price = data['c']     # The close price for the symbol in the given time period
+        self.high_price = data['h']      # The highest price for the symbol in the given time period
+        self.low_price = data['l']       # The lowest price for the symbol in the given time period
+        self.timestamp = data['t']       # The Unix Msec timestamp for the start of the aggregate window
+        self.number_of_trades = data['n']# The number of transactions in the aggregate window
+        
+    @property
+    def datetime(self):
+        """Convert timestamp to datetime object"""
+        return datetime.fromtimestamp(self.timestamp / 1000.0)
+    
 # Fetch some data
 # Click sets command line params and their defaults
 @click.command()
@@ -84,7 +101,7 @@ def fetch_data(ticker, start, end, timespan, multi):
         
         # Fetch historic data for the stock
         for data in fetch_all_historic_data(reqStr, None):
-            sdata = serialize_data(data)
+            sdata = serialize_data(data, ticker)
             logger.debug(sdata)
             if sdata:
                 logger.debug(f"Queuing data: {sdata}")
@@ -151,11 +168,26 @@ def fetch_historic_data(reqStr, next_url=None):
     logging.debug(f"fetch_historic_data: {response}")
     return response
           
-def serialize_data(data):
+def serialize_data(data, ticker):
     logger.debug("Serialising data")
     try:
-        data_json = json.dumps(data)
-        return data_json
+        #TODO:Kafka Schema?
+        stock_snapshot = StockSnapshot(ticker, data)
+        
+        # Convert to dictionary for JSON serialization
+        serializable_data = {
+            'ticker': stock_snapshot.ticker,
+            'timestamp': stock_snapshot.timestamp,
+            'datetime': stock_snapshot.datetime.isoformat(),
+            'open': stock_snapshot.open_price,
+            'close': stock_snapshot.close_price,
+            'high': stock_snapshot.high_price,
+            'low': stock_snapshot.low_price,
+            'volume': stock_snapshot.volume,
+            'vwap': stock_snapshot.vwap,
+            'number_of_trades': stock_snapshot.number_of_trades
+        }
+        return json.dumps(serializable_data)
     except Exception as err:
         logger.error(f"Error serializing message: {err}")
         return None
