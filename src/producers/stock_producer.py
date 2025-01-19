@@ -121,6 +121,9 @@ def fetch_data(ticker, start, end, timespan, multi):
                     break
         logger.debug("DONE FETCHING")
 
+        #TODO: We can move to gathering live data here
+        poll_live_data()
+
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
     except KeyboardInterrupt:
@@ -174,6 +177,8 @@ def fetch_historic_data(reqStr, next_url=None):
     logging.debug(f"fetch_historic_data: {response}")
     return response
 
+def poll_live_data():
+    pass
 
 def serialize_data(data, ticker):
     logger.debug("Serialising data")
@@ -219,7 +224,7 @@ def delivery_callback(err, event):
 
 def queue_data(data, topic):
     # Topic will be automatically created if it does not exist
-    logger.info(f"Sending data to topic: {topic}")
+    logger.debug(f"Sending data to topic: {topic}")
 
     current_retries = 0
     while current_retries < MAX_RETRIES:
