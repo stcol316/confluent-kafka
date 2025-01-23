@@ -10,6 +10,7 @@ ENV PYTHONUNBUFFERED=1
 # Copy the consumer script into the container
 # The root dir is src/
 COPY ./consumers/consumer.py .
+COPY ./consumers/stock_to_influxdb.py .
 COPY ./consumers/weather-consumer.py .
 COPY ./consumers/requirements.txt /tmp/
 COPY .env .
@@ -18,4 +19,4 @@ COPY .env .
 RUN pip install -r /tmp/requirements.txt
 
 # Command to run the consumer
-CMD ["python", "consumer.py"]
+CMD ["python", "stock_to_influxdb.py"]
