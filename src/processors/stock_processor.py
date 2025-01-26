@@ -1,5 +1,9 @@
 from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer, KafkaOffsetResetStrategy
+from pyflink.datastream.connectors.kafka import (
+    KafkaSource,
+    KafkaOffsetsInitializer,
+    KafkaOffsetResetStrategy,
+)
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common import WatermarkStrategy, Duration
 from pyflink.common.typeinfo import Types
@@ -62,7 +66,6 @@ class TargetPriceDetector(KeyedProcessFunction):
             return
 
 
-
 class PriceChangeDetector(KeyedProcessFunction):
     def __init__(self, threshold_percentage, slack_client):
         self.threshold = threshold_percentage
@@ -79,7 +82,9 @@ class PriceChangeDetector(KeyedProcessFunction):
             previous_price = self.last_price.value()
 
             if previous_price is not None:
-                price_change = round(((current_price - previous_price) / previous_price) * 100, 2)
+                price_change = round(
+                    ((current_price - previous_price) / previous_price) * 100, 2
+                )
 
                 if abs(price_change) >= self.threshold:
                     result = {
@@ -95,13 +100,9 @@ class PriceChangeDetector(KeyedProcessFunction):
                     if self.slack_client is not None:
                         message = ""
                         if price_change > 0:
-                            message = (
-                                f"{value['datetime']} {value['ticker']} price has increased by {price_change}%"
-                            )
+                            message = f"{value['datetime']} {value['ticker']} price has increased by {price_change}%"
                         else:
-                            message = (
-                                f"{value['datetime']} {value['ticker']} price has decreased by {price_change}%"
-                            )
+                            message = f"{value['datetime']} {value['ticker']} price has decreased by {price_change}%"
 
                         # self.slack_client.chat_postMessage(
                         #     channel=os.environ["SLACK_CHANNEL"],
@@ -110,7 +111,7 @@ class PriceChangeDetector(KeyedProcessFunction):
                         # We are rate limited to 1 message per second
                         time.sleep(1.2)
                     yield result
-        
+
             self.last_price.update(current_price)
         except TypeError as te:
             logger.error(f"Error calculating price change: {te}")
@@ -118,7 +119,6 @@ class PriceChangeDetector(KeyedProcessFunction):
         except Exception as e:
             logger.error(f"Error processing element: {e}")
             return
-
 
 
 def create_kafka_source():
@@ -139,7 +139,11 @@ def create_kafka_source():
             .set_bootstrap_servers(broker)
             .set_topics(topic)
             .set_group_id("stock_flink_processor")
-            .set_starting_offsets(KafkaOffsetsInitializer.committed_offsets(KafkaOffsetResetStrategy.EARLIEST))
+            .set_starting_offsets(
+                KafkaOffsetsInitializer.committed_offsets(
+                    KafkaOffsetResetStrategy.EARLIEST
+                )
+            )
             .set_value_only_deserializer(SimpleStringSchema())
             .build()
         )
@@ -164,11 +168,10 @@ def process_stock_data():
         kafka_jar = os.path.join(current_dir, "flink-sql-kafka-connector.jar")
         if not os.path.exists(kafka_jar):
             raise RuntimeError(f"Kafka connector JAR not found at {kafka_jar}")
-        
+
         kafka_jar_url = f"file://{kafka_jar}"
         logger.debug(f"Adding JAR from path: {kafka_jar_url}")
         env.add_jars(kafka_jar_url)
-
 
         # Add Kafka source
         kafka_source = create_kafka_source()
@@ -197,7 +200,9 @@ def process_stock_data():
         logger.debug("Processing the data stream")
         percentage_change_stream = (
             env.from_source(
-                source=kafka_source, watermark_strategy=wms, source_name="Kafka Stock Data"
+                source=kafka_source,
+                watermark_strategy=wms,
+                source_name="Kafka Stock Data",
             )
             .map(process_record)
             .key_by(lambda x: x["ticker"])
@@ -208,7 +213,9 @@ def process_stock_data():
 
         target_price_stream = (
             env.from_source(
-                source=kafka_source, watermark_strategy=wms, source_name="Kafka Stock Data"
+                source=kafka_source,
+                watermark_strategy=wms,
+                source_name="Kafka Stock Data",
             )
             .map(process_record)
             .key_by(lambda x: x["ticker"])

@@ -114,7 +114,7 @@ def fetch_data(ticker, start, end, timespan, multi):
                     break
         logger.debug("DONE FETCHING HISTORIC DATA")
 
-        #TODO: We can move to gathering live data here
+        # TODO: We can move to gathering live data here
         poll_live_data()
     except requests.RequestException as e:
         logger.error(f"HTTP Request failed: {e}")
@@ -161,9 +161,7 @@ def fetch_historic_data(reqStr, next_url=None):
     current_retries = 0
     while current_retries < MAX_RETRIES:
         try:
-            response = requests.get(request, params = {
-                        "apiKey": os.environ["API_KEY"]
-                    })
+            response = requests.get(request, params={"apiKey": os.environ["API_KEY"]})
             logging.debug(f"fetch_historic_data: {response}")
             if response.status_code == 200:
                 return response
@@ -180,8 +178,10 @@ def fetch_historic_data(reqStr, next_url=None):
     # Return None when retries exhausted
     return None
 
+
 def poll_live_data():
     pass
+
 
 def serialize_data(data, ticker):
     logger.debug("Serialising data")
@@ -208,7 +208,7 @@ def serialize_data(data, ticker):
         return None
     except TypeError as te:
         logger.error(f"JSON serialization failed: {te}")
-        return None        
+        return None
     except Exception as err:
         logger.error(f"Unexpected error during serialization: {err}")
         return None
