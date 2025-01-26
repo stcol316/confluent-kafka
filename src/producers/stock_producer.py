@@ -112,18 +112,12 @@ def fetch_data(ticker, start, end, timespan, multi):
                 if not queue_data(sdata, topic):
                     logger.error("Failed to queue data, stopping producer")
                     break
-                # Reset retry counter
-                current_retries = 0
-            else:
-                current_retries += 1
-                if current_retries > MAX_RETRIES:
-                    logger.error("Maximum retries exceeded. Exiting")
-                    break
-        logger.debug("DONE FETCHING")
+        logger.debug("DONE FETCHING HISTORIC DATA")
 
         #TODO: We can move to gathering live data here
         poll_live_data()
-
+    except requests.RequestException as e:
+        logger.error(f"HTTP Request failed: {e}")
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
     except KeyboardInterrupt:
@@ -136,11 +130,9 @@ def fetch_data(ticker, start, end, timespan, multi):
 
 def fetch_all_historic_data(reqStr, next_url=None):
     logger.info("Fetching historic data")
-    current_retries = 0
     response = fetch_historic_data(reqStr, next_url)
 
     if response.status_code == 200:
-        current_retries = 0
         data = response.json()
 
         # Yield current page results and continue processing
@@ -159,11 +151,6 @@ def fetch_all_historic_data(reqStr, next_url=None):
         logger.info("Finished gathering historic data")
     else:
         logger.error(f"Error fetching data: {response}")
-        current_retries += 1
-
-        if current_retries > MAX_RETRIES:
-            logger.error("Maximum retries exceeded. Exiting")
-            return False
 
         # Max 5 request per minute so we sleep for 15 seconds
         time.sleep(int(os.environ.get("REQUEST_INTERVAL", 15)))
@@ -171,11 +158,27 @@ def fetch_all_historic_data(reqStr, next_url=None):
 
 def fetch_historic_data(reqStr, next_url=None):
     request = next_url if next_url else reqStr
-    response = requests.get(request, params = {
-                "apiKey": os.environ["API_KEY"]
-            })
-    logging.debug(f"fetch_historic_data: {response}")
-    return response
+    current_retries = 0
+    while current_retries < MAX_RETRIES:
+        try:
+            response = requests.get(request, params = {
+                        "apiKey": os.environ["API_KEY"]
+                    })
+            logging.debug(f"fetch_historic_data: {response}")
+            if response.status_code == 200:
+                return response
+            else:
+                logger.error(f"HTTP Request failed with status {response.status_code}")
+        except requests.RequestException as re:
+            logger.error(f"HTTP Request failed: {re}")
+            current_retries += 1
+            if current_retries >= MAX_RETRIES:
+                raise Exception(f"Maximum retries reached for HTTP requests: {re}")
+            # We could have a backoff mechanism here
+            time.sleep(1)
+
+    # Return None when retries exhausted
+    return None
 
 def poll_live_data():
     pass
@@ -200,8 +203,14 @@ def serialize_data(data, ticker):
             "number_of_trades": stock_snapshot.number_of_trades,
         }
         return json.dumps(serializable_data)
+    except KeyError as ke:
+        logger.error(f"Key not found: {ke}")
+        return None
+    except TypeError as te:
+        logger.error(f"JSON serialization failed: {te}")
+        return None        
     except Exception as err:
-        logger.error(f"Error serializing message: {err}")
+        logger.error(f"Unexpected error during serialization: {err}")
         return None
 
 
@@ -237,6 +246,8 @@ def queue_data(data, topic):
             if error.retriable():
                 logger.error(f"Retryable producer error: {error}")
                 current_retries += 1
+                # We could have a backoff mechanism here
+                time.sleep(1)
             else:
                 logger.error(f"Non-retryable producer error: {error}")
                 return False
@@ -247,6 +258,9 @@ def queue_data(data, topic):
         except Exception as e:
             logger.error(f"Unexpected error while producing: {e}")
             return False
+
+    # Return False when retries exhausted
+    return False
 
 
 def create_producer():
