@@ -3,19 +3,23 @@ from pyflink.datastream.connectors.kafka import (
     KafkaSource,
     KafkaOffsetsInitializer,
     KafkaOffsetResetStrategy,
+    KafkaSink,
 )
 from pyflink.common.serialization import SimpleStringSchema
-from pyflink.common import WatermarkStrategy, Duration
+from pyflink.common import WatermarkStrategy, Duration, Configuration
 from pyflink.common.typeinfo import Types
 from pyflink.datastream.functions import KeyedProcessFunction
 from pyflink.datastream.state import ValueStateDescriptor
 from pyflink.common.restart_strategy import RestartStrategies
+from pyflink.datastream.checkpointing_mode import CheckpointingMode
+from pyflink.datastream.checkpoint_config import ExternalizedCheckpointCleanup
 from slack_sdk import WebClient
 import time
 import os
 import json
 import logging
 import sys
+import signal
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,7 +32,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 slack_client = None
-
 
 class TargetPriceDetector(KeyedProcessFunction):
     def __init__(self, target_price):
@@ -121,6 +124,38 @@ class PriceChangeDetector(KeyedProcessFunction):
             return
 
 
+class SavepointHandler:
+    def __init__(self, env):
+        self.env = env
+        self.job_id = None
+        self.job_client = None
+        self.savepoint_path = "/opt/flink/savepoints"
+
+    def register_signals(self):
+        signal.signal(signal.SIGINT, self.handle_shutdown)
+        signal.signal(signal.SIGTERM, self.handle_shutdown)
+
+    def handle_shutdown(self, signum, frame):
+        print("Handle shutdown")
+        if self.job_id and self.job_client:
+            try:
+                print("Creating savepoint...")
+                # Trigger savepoint before shutdown
+                savepoint_future = self.job_client.trigger_savepoint(self.savepoint_path)
+                savepoint = savepoint_future.result()
+                if savepoint_future.exception():
+                    raise Exception(f"Error during savepoint creation: {savepoint_future.exception()}")
+                elif savepoint_future.cancelled():
+                    raise Exception("Savepoint creation cancelled")
+                elif savepoint_future.done():
+                    print(f"Savepoint created at: {savepoint}")
+                else:
+                    raise Exception("Unexpected issue during savepoint creation")
+            except Exception as e:
+                print(f"Failed to create savepoint: {e}")
+        sys.exit(0)
+
+
 def create_kafka_source():
     try:
         broker = f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}"
@@ -144,6 +179,13 @@ def create_kafka_source():
                     KafkaOffsetResetStrategy.EARLIEST
                 )
             )
+            .set_properties(
+                {
+                    "enable.auto.commit": "false",
+                    "auto.offset.reset": "earliest",
+                    "isolation.level": "read_committed",
+                }
+            )
             .set_value_only_deserializer(SimpleStringSchema())
             .build()
         )
@@ -155,12 +197,45 @@ def create_kafka_source():
         raise
 
 
+def configure_flink_env():
+    config = Configuration()
+    config.set_string("state.checkpoints.dir", "file:///opt/flink/checkpoints")
+    config.set_string("state.savepoints.dir", "file:///opt/flink/savepoints")
+
+    env = StreamExecutionEnvironment.get_execution_environment(config)
+
+    # Restart strategy
+    env.set_restart_strategy(RestartStrategies.fixed_delay_restart(3, 10000))
+
+    # Checkpointing for fault tolerance
+    env.enable_checkpointing(60000)
+    checkpoint_config = env.get_checkpoint_config()
+    checkpoint_config.set_checkpointing_mode(CheckpointingMode.EXACTLY_ONCE)
+    checkpoint_config.set_min_pause_between_checkpoints(30000)
+    checkpoint_config.set_checkpoint_timeout(20000)
+    checkpoint_config.set_max_concurrent_checkpoints(1)
+    checkpoint_config.enable_externalized_checkpoints(
+        ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION
+    )
+
+    # Get latest savepoint if exists
+    latest_savepoint = get_latest_savepoint("/opt/flink/savepoints")
+    if latest_savepoint:
+            # Set the savepoint path in the configuration
+            config.set_string("execution.savepoint.path", latest_savepoint)
+
+    return env
+
+
 def process_stock_data():
     try:
         # Create the execution environment
         logger.debug("Creating the execution environment")
-        env = StreamExecutionEnvironment.get_execution_environment()
-        env.set_restart_strategy(RestartStrategies.fixed_delay_restart(3, 10000))
+        env = configure_flink_env()
+
+        # Setup savepoint handler
+        savepoint_handler = SavepointHandler(env)
+        savepoint_handler.register_signals()
 
         # Add kafka connetor
         logger.debug("Adding Kafka connector jar")
@@ -227,13 +302,59 @@ def process_stock_data():
         target_price_stream.print()
 
         # Execute the Flink job
-        env.execute("Stock Data Processing Job")
+        # env.execute("Stock Data Processing Job")
+        job_client = env.execute_async("Stock Processing Pipeline")
+        savepoint_handler.job_id = job_client.get_job_id()
+        savepoint_handler.job_client = job_client
+        print(f"Job started with ID: {savepoint_handler.job_id}")
+            
+        # Keep the program running
+        try:
+            # Wait for the job to complete or be interrupted
+            job_client.get_job_execution_result().result()
+        except KeyboardInterrupt:
+            print("Received interrupt signal")
+            savepoint_handler.handle_shutdown(None, None)
+        except Exception as e:
+            print(f"Job execution error: {e}")
+            raise
+
     except ValueError as ve:
-        logger.error(f"Configuration error: {ve}")
+        print(f"Configuration error: {ve}")
         raise
     except Exception as e:
-        logger.error(f"Fatal error in stock processing: {e}")
+        print(f"Fatal error in stock processing: {e}")
         raise
+
+
+def get_latest_savepoint(savepoint_dir):
+    try:
+        print("Getting latest savepoint")
+        if not os.path.exists(savepoint_dir):
+            print(f"Savepoint directory not found at location {savepoint_dir}")
+            return None
+        
+        savepoints = [
+            f for f in os.listdir(savepoint_dir)
+            if os.path.isdir(os.path.join(savepoint_dir, f))
+        ]
+        
+        if not savepoints:
+            print(f"No save points found at {savepoint_dir}")
+            return None
+        
+        latest = max(
+            savepoints,
+            key=lambda x: os.path.getctime(os.path.join(savepoint_dir, x)),
+        )
+        
+        full_path = os.path.join(savepoint_dir, latest)
+        print(f"Found latest savepoint at: {full_path}")
+        return full_path
+        
+    except Exception as e:
+        print(f"Failed to get latest savepoint: {e}")
+    return None
 
 
 if __name__ == "__main__":

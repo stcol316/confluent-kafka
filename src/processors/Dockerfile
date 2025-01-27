@@ -11,6 +11,16 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 # install PyFlink
 RUN pip install apache-flink
 
+# Create checkpoint directory with proper permissions
+RUN mkdir -p /opt/flink/checkpoints && \
+    chown -R flink:flink /opt/flink/checkpoints && \
+    chmod 777 /opt/flink/checkpoints
+
+# Create savepoint directory with proper permissions
+RUN mkdir -p /opt/flink/savepoints && \
+    chown -R flink:flink /opt/flink/savepoints && \
+    chmod 777 /opt/flink/savepoints
+
 # Set working directory inside the container
 WORKDIR /app
 

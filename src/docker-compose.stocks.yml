@@ -67,6 +67,11 @@ services:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]
       interval: 30s
@@ -93,7 +98,11 @@ services:
         taskmanager.memory.jvm-overhead.min: 192m
         taskmanager.memory.jvm-overhead.max: 512m
         taskmanager.memory.jvm-metaspace.size: 256m
-    scale: 1
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
 
   stock-processor:
     build:
@@ -113,6 +122,8 @@ services:
       - FLINK_JOBMANAGER_PORT=6123
     volumes:
       - ./processors:/opt/processors
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
     command: python stock_processor.py
 
   influxdb:
@@ -160,3 +171,5 @@ volumes:
   influxdb-data:
   influxdb-config:
   grafana-data:
+  flink-checkpoints:
+  flink-savepoints:
