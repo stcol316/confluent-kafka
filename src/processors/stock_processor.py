@@ -4,6 +4,8 @@ from pyflink.datastream.connectors.kafka import (
     KafkaOffsetsInitializer,
     KafkaOffsetResetStrategy,
     KafkaSink,
+    DeliveryGuarantee,
+    KafkaRecordSerializationSchema,
 )
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common import WatermarkStrategy, Duration, Configuration
@@ -33,6 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 slack_client = None
 
+
 class TargetPriceDetector(KeyedProcessFunction):
     def __init__(self, target_price):
         self.target_price = target_price
@@ -60,19 +63,22 @@ class TargetPriceDetector(KeyedProcessFunction):
                     "current_price": current_price,
                     "alert_type": "target_price_reached",
                 }
+                # result = json.dumps(result)
+                # print(type(result))
+                # print(result)
+                time.sleep(1)
                 yield result
         except TypeError as te:
-            logger.error(f"Error calculating target price: {te}")
+            print(f"Error calculating target price: {te}")
             return
         except Exception as e:
-            logger.error(f"Error processing element: {e}")
+            print(f"Error processing element: {e}")
             return
 
 
 class PriceChangeDetector(KeyedProcessFunction):
-    def __init__(self, threshold_percentage, slack_client):
+    def __init__(self, threshold_percentage):
         self.threshold = threshold_percentage
-        self.slack_client = slack_client
         self.last_price = None
 
     def open(self, context):
@@ -100,27 +106,30 @@ class PriceChangeDetector(KeyedProcessFunction):
                     }
 
                     # TODO: Push these alerts to individual topics and let consumers write to slack
-                    if self.slack_client is not None:
-                        message = ""
-                        if price_change > 0:
-                            message = f"{value['datetime']} {value['ticker']} price has increased by {price_change}%"
-                        else:
-                            message = f"{value['datetime']} {value['ticker']} price has decreased by {price_change}%"
+                    # if self.slack_client is not None:
+                    #     message = ""
+                    #     if price_change > 0:
+                    #         message = f"{value['datetime']} {value['ticker']} price has increased by {price_change}%"
+                    #     else:
+                    #         message = f"{value['datetime']} {value['ticker']} price has decreased by {price_change}%"
 
-                        # self.slack_client.chat_postMessage(
-                        #     channel=os.environ["SLACK_CHANNEL"],
-                        #     text=message,
-                        # )
-                        # We are rate limited to 1 message per second
-                        time.sleep(1.2)
+                    # self.slack_client.chat_postMessage(
+                    #     channel=os.environ["SLACK_CHANNEL"],
+                    #     text=message,
+                    # )
+                    # We are rate limited to 1 message per second
+                    # time.sleep(1.2)
+                    # result = json.dumps(result)
+                    # print(type(result))
+                    # print(result)
                     yield result
 
             self.last_price.update(current_price)
         except TypeError as te:
-            logger.error(f"Error calculating price change: {te}")
+            print(f"Error calculating price change: {te}")
             return
         except Exception as e:
-            logger.error(f"Error processing element: {e}")
+            print(f"Error processing element: {e}")
             return
 
 
@@ -140,11 +149,18 @@ class SavepointHandler:
         if self.job_id and self.job_client:
             try:
                 print("Creating savepoint...")
+                if not os.path.exists(self.savepoint_path):
+                    os.makedirs(self.savepoint_path, exist_ok=True)
+
                 # Trigger savepoint before shutdown
-                savepoint_future = self.job_client.trigger_savepoint(self.savepoint_path)
+                savepoint_future = self.job_client.trigger_savepoint(
+                    self.savepoint_path
+                )
                 savepoint = savepoint_future.result()
                 if savepoint_future.exception():
-                    raise Exception(f"Error during savepoint creation: {savepoint_future.exception()}")
+                    raise Exception(
+                        f"Error during savepoint creation: {savepoint_future.exception()}"
+                    )
                 elif savepoint_future.cancelled():
                     raise Exception("Savepoint creation cancelled")
                 elif savepoint_future.done():
@@ -156,13 +172,65 @@ class SavepointHandler:
         sys.exit(0)
 
 
-def create_kafka_source():
+def process_stock_data():
     try:
+        # Ensure env has correct values configured
+        verify_env()
+
+        # Configure Broker
         broker = f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}"
+
+        # Create the execution environment
+        print("Creating the execution environment")
+        env = configure_flink_env()
+
+        # Setup savepoint handler
+        savepoint_handler = SavepointHandler(env)
+        savepoint_handler.register_signals()
+
+        # Add kafka connetor
+        print("Adding kafka connector")
+        env = add_kafka_connectors(env)
+
+        # Add Kafka source
+        print("Creating kafka source")
+        kafka_source = create_kafka_source(broker)
+
+        # Create watermark strategy
+        print("Creating watermark strategy")
+        wms = WatermarkStrategy.for_bounded_out_of_orderness(Duration.of_seconds(15))
+
+        # Create Kafka Sink
+        print("Creating kafka sink")
+        kafka_sink = build_kafka_sink(broker)
+
+        # Send a message
+        slack_token = os.environ.get("SLACK_TOKEN", None)
+        if slack_token is not None:
+            slack_client = WebClient(token=slack_token)
+
+        # Create the data stream from Kafka and transform the data
+        print("Processing the data stream")
+        configure_percentage_change_stream(env, kafka_source, wms, kafka_sink)
+        configure_target_price_stream(env, kafka_source, wms, kafka_sink)
+
+        # Execute the Flink job
+        execute_job(env, savepoint_handler)
+
+    except ValueError as ve:
+        print(f"Configuration error: {ve}")
+        raise
+    except Exception as e:
+        print(f"Fatal error in stock processing: {e}")
+        raise
+
+
+def create_kafka_source(broker):
+    try:
         topic = os.getenv("STOCK_TOPIC")
 
-        logger.debug(f"Connecting to broker: {broker}")
-        logger.debug(f"Topic: {topic}")
+        print(f"Connecting to broker: {broker}")
+        print(f"Topic: {topic}")
 
         if not broker or not topic:
             raise ValueError(
@@ -190,10 +258,10 @@ def create_kafka_source():
             .build()
         )
     except KeyError as ke:
-        logger.error(f"Missing environment variable: {ke}")
+        print(f"Missing environment variable: {ke}")
         raise
     except Exception as e:
-        logger.error(f"Failed to create Kafka source: {e}")
+        print(f"Failed to create Kafka source: {e}")
         raise
 
 
@@ -221,109 +289,139 @@ def configure_flink_env():
     # Get latest savepoint if exists
     latest_savepoint = get_latest_savepoint("/opt/flink/savepoints")
     if latest_savepoint:
-            # Set the savepoint path in the configuration
-            config.set_string("execution.savepoint.path", latest_savepoint)
+        # Set the savepoint path in the configuration
+        config.set_string("execution.savepoint.path", latest_savepoint)
 
     return env
 
 
-def process_stock_data():
+def build_kafka_sink(broker):
+    kafka_sink = (
+        KafkaSink.builder()
+        .set_bootstrap_servers(broker)
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+            .set_topic(os.environ["ALERT_TOPIC"])
+            .set_value_serialization_schema(SimpleStringSchema())
+            .build()
+        )
+        .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+        .build()
+    )
+
+    return kafka_sink
+
+
+def verify_env():
+    required_vars = [
+        "BROKER_NAME",
+        "BROKER_LISTENER_PORT",
+        "STOCK_TOPIC",
+        "ALERT_TOPIC",
+    ]
+    missing_vars = [var for var in required_vars if var not in os.environ]
+
+    if missing_vars:
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(missing_vars)}"
+        )
+
+
+def configure_target_price_stream(env, kafka_source, wms, kafka_sink):
+    target_price_stream = (
+        env.from_source(
+            source=kafka_source,
+            watermark_strategy=wms,
+            source_name="Kafka Stock Data",
+        )
+        .map(process_record)
+        .key_by(lambda x: x["ticker"])
+        .process(TargetPriceDetector(float(os.environ["TARGET_PRICE"])))
+    )
+
+    # Monitor the stream
+    target_price_stream.get_execution_environment().get_config().set_latency_tracking_interval(
+        5000
+    )
+
+    # Explicitly serialize the data and use explicit Flink Type definition
+    serialized_stream = target_price_stream.map(
+        lambda x: json.dumps(x) if x is not None else "", output_type=Types.STRING()
+    ).set_parallelism(1)
+
+    # Print stream output to console and send to topic
+    serialized_stream.sink_to(kafka_sink)
+    serialized_stream.print()
+
+
+def configure_percentage_change_stream(env, kafka_source, wms, kafka_sink):
+    percentage_change_stream = (
+        env.from_source(
+            source=kafka_source,
+            watermark_strategy=wms,
+            source_name="Kafka Stock Data",
+        )
+        .map(process_record)
+        .key_by(lambda x: x["ticker"])
+        .process(PriceChangeDetector(float(os.environ["PERCENTAGE_ALERT"])))
+    )
+
+    # Monitor the stream
+    percentage_change_stream.get_execution_environment().get_config().set_latency_tracking_interval(
+        5000
+    )
+
+    # Explicitly serialize the data and use explicit Flink Type definition
+    serialized_stream = percentage_change_stream.map(
+        lambda x: json.dumps(x) if x is not None else "", output_type=Types.STRING()
+    ).set_parallelism(1)
+
+    # Print stream output to console and send to topic
+    serialized_stream.sink_to(kafka_sink)
+    serialized_stream.print()
+
+
+def process_record(record):
     try:
-        # Create the execution environment
-        logger.debug("Creating the execution environment")
-        env = configure_flink_env()
-
-        # Setup savepoint handler
-        savepoint_handler = SavepointHandler(env)
-        savepoint_handler.register_signals()
-
-        # Add kafka connetor
-        logger.debug("Adding Kafka connector jar")
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        kafka_jar = os.path.join(current_dir, "flink-sql-kafka-connector.jar")
-        if not os.path.exists(kafka_jar):
-            raise RuntimeError(f"Kafka connector JAR not found at {kafka_jar}")
-
-        kafka_jar_url = f"file://{kafka_jar}"
-        logger.debug(f"Adding JAR from path: {kafka_jar_url}")
-        env.add_jars(kafka_jar_url)
-
-        # Add Kafka source
-        kafka_source = create_kafka_source()
-
-        # Create watermark strategy
-        logger.debug("Creating watermark strategy")
-        wms = WatermarkStrategy.for_bounded_out_of_orderness(Duration.of_seconds(15))
-
-        def process_record(record):
-            try:
-                return json.loads(record)
-            except json.JSONDecodeError as je:
-                logger.error(f"Failed to parse JSON record: {je}")
-                logger.debug(f"Invalid record: {record}")
-                return None
-            except Exception as e:
-                logger.error(f"Unexpected error processing record: {e}")
-                return None
-
-        # Send a message
-        slack_token = os.environ.get("SLACK_TOKEN", None)
-        if slack_token is not None:
-            slack_client = WebClient(token=slack_token)
-
-        # Create the data stream from Kafka and transform the data
-        logger.debug("Processing the data stream")
-        percentage_change_stream = (
-            env.from_source(
-                source=kafka_source,
-                watermark_strategy=wms,
-                source_name="Kafka Stock Data",
-            )
-            .map(process_record)
-            .key_by(lambda x: x["ticker"])
-            .process(
-                PriceChangeDetector(float(os.environ["PERCENTAGE_ALERT"]), slack_client)
-            )
-        )
-
-        target_price_stream = (
-            env.from_source(
-                source=kafka_source,
-                watermark_strategy=wms,
-                source_name="Kafka Stock Data",
-            )
-            .map(process_record)
-            .key_by(lambda x: x["ticker"])
-            .process(TargetPriceDetector(float(os.environ["TARGET_PRICE"])))
-        )
-
-        # TODO: Configure data sinks to send these alerts to Kafka topics
-        percentage_change_stream.print()
-        target_price_stream.print()
-
-        # Execute the Flink job
-        # env.execute("Stock Data Processing Job")
-        job_client = env.execute_async("Stock Processing Pipeline")
-        savepoint_handler.job_id = job_client.get_job_id()
-        savepoint_handler.job_client = job_client
-        print(f"Job started with ID: {savepoint_handler.job_id}")
-            
-        # Keep the program running
-        try:
-            # Wait for the job to complete or be interrupted
-            job_client.get_job_execution_result().result()
-        except KeyboardInterrupt:
-            print("Received interrupt signal")
-            savepoint_handler.handle_shutdown(None, None)
-        except Exception as e:
-            print(f"Job execution error: {e}")
-            raise
-
-    except ValueError as ve:
-        print(f"Configuration error: {ve}")
-        raise
+        return json.loads(record)
+    except json.JSONDecodeError as je:
+        print(f"Failed to parse JSON record: {je}")
+        print(f"Invalid record: {record}")
+        return None
     except Exception as e:
-        print(f"Fatal error in stock processing: {e}")
+        print(f"Unexpected error processing record: {e}")
+        return None
+
+
+def add_kafka_connectors(env):
+    print("Adding Kafka connector JAR files")
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    kafka_sql_jar = os.path.join(
+        current_dir, "flink-sql-connector-kafka-3.3.0-1.20.jar"
+    )
+    if not os.path.exists(kafka_sql_jar):
+        raise RuntimeError(f"Kafka connector JAR not found at {kafka_sql_jar}")
+
+    kafka_sql_jar_url = f"file://{kafka_sql_jar}"
+    print(f"Adding JAR from path: {kafka_sql_jar_url}")
+    env.add_jars(kafka_sql_jar_url)
+
+    return env
+
+
+def execute_job(env, savepoint_handler):
+    job_client = env.execute_async("Stock Processing Pipeline")
+    savepoint_handler.job_id = job_client.get_job_id()
+    savepoint_handler.job_client = job_client
+    print(f"Job started with ID: {savepoint_handler.job_id}")
+
+    try:
+        job_client.get_job_execution_result().result()
+    except KeyboardInterrupt:
+        print("Received interrupt signal")
+        savepoint_handler.handle_shutdown(None, None)
+    except Exception as e:
+        print(f"Job execution error: {e}")
         raise
 
 
@@ -333,25 +431,26 @@ def get_latest_savepoint(savepoint_dir):
         if not os.path.exists(savepoint_dir):
             print(f"Savepoint directory not found at location {savepoint_dir}")
             return None
-        
+
         savepoints = [
-            f for f in os.listdir(savepoint_dir)
+            f
+            for f in os.listdir(savepoint_dir)
             if os.path.isdir(os.path.join(savepoint_dir, f))
         ]
-        
+
         if not savepoints:
             print(f"No save points found at {savepoint_dir}")
             return None
-        
+
         latest = max(
             savepoints,
             key=lambda x: os.path.getctime(os.path.join(savepoint_dir, x)),
         )
-        
+
         full_path = os.path.join(savepoint_dir, latest)
         print(f"Found latest savepoint at: {full_path}")
         return full_path
-        
+
     except Exception as e:
         print(f"Failed to get latest savepoint: {e}")
     return None

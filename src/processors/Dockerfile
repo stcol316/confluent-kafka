@@ -31,7 +31,7 @@ ENV PYTHONUNBUFFERED=1
 # The root dir is src/
 COPY ./processors/stock_processor.py .
 COPY ./processors/requirements.txt /tmp/
-COPY ./processors/flink-sql-kafka-connector.jar .
+COPY ./processors/flink-sql-connector-kafka-3.3.0-1.20.jar .
 COPY .env .
 
 # Install dependencies

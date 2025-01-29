@@ -193,5 +193,5 @@ def shutdown_influx():
             
 if __name__ == "__main__":
     logger.debug("Entered main")
-    topic = os.environ.get("STOCK_TOPIC", "stock_data")
+    topic = os.environ.get("STOCK_TOPIC", "stock-data")
     poll_data(topic)
