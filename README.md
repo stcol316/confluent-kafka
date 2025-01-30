@@ -1,5 +1,5 @@
 # Overview
-A repo experimenting with event driven architecture consisting of 2 small Python applications; 
+A repo experimenting with event driven architecture using Kafka and Flink consisting of 2 Python applications; 
 
 - A simple Kafka producer-consumer setup for processing weather data. 
 - A real-time stock market analytics platform built with Apache Flink and Kafka, featuring automated price monitoring and Slack alert generation. Visualisation for your selected stock ticker via Grafana with InfluxDB.
@@ -36,9 +36,10 @@ It is highly recommended that these run in Docker using the docker-compose files
 
 ### Data Flow
 1. Stock data ingestion through Kafka
-2. Real-time processing via Flink
-3. Alert generation for configured conditions
-4. Alert delivery to Slack through dedicated Kafka topic
+2. Kafka Producer to InfluxDB with data visualisation via Grafana
+3. Real-time processing via Flink
+4. Alert generation for configured conditions
+5. Alert delivery to Slack through dedicated Kafka topic
 
 ## Configuration
 
