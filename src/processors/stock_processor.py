@@ -130,8 +130,7 @@ class SavepointHandler:
         if self.job_id and self.job_client:
             try:
                 print("Creating savepoint...")
-                if not os.path.exists(self.savepoint_path):
-                    os.makedirs(self.savepoint_path, exist_ok=True)
+                os.makedirs(self.savepoint_path, exist_ok=True)                    
 
                 # Trigger savepoint before shutdown
                 savepoint_future = self.job_client.trigger_savepoint(
@@ -166,9 +165,10 @@ def main():
             create_topic_if_not_exists(broker)
         except KafkaException as ke:
             print(f"KafkaException encountered while creating topic: {ke}")
-            return
+            raise
         except Exception as e:
             print(f"Unexpected error occured while creating Kafka Topic: {e}")
+            raise
 
         # Create the execution environment
         print("Creating the execution environment")
@@ -458,7 +458,7 @@ def get_latest_savepoint(savepoint_dir):
 
 
 if __name__ == "__main__":
-    logger.debug("Starting stock processor")
+    print("Starting stock processor")
     try:
         main()
     except Exception:

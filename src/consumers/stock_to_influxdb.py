@@ -151,7 +151,7 @@ def write_to_influx(write_api, event):
             Point(f"{os.environ['INFLUX_STOCK_MEASUREMENT']}")
             .time(f"{event['datetime']}")
             .tag("ticker", event["ticker"])
-            .field("price", event["close"])
+            .field("price", round(float(event["close"]),2))
         )
         logger.info(point)
         write_api.write(bucket=os.environ["INFLUXDB_BUCKET"], record=point)
