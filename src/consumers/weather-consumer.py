@@ -18,7 +18,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# TODO: This should be set using environment variables
 # Configure Consumer
 consumer_config = {
     # User-specific properties that you must set
@@ -28,7 +27,6 @@ consumer_config = {
     "auto.offset.reset": "earliest",
 }
 
-# # TODO: This should be set using environment variables
 # # Configure Producer
 producer_config = {
     # User-specific properties that you must set

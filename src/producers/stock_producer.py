@@ -70,7 +70,7 @@ class StockSnapshot:
 @click.option(
     "--start",
     type=str,
-    default="2022-01-09",
+    default="2022-01-30",
     help="The starting date from which you want to analyse data formatted to YYYY-MM-DD or a millisecond timestamp (Max 2 yrs)",
 )
 @click.option(

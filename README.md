@@ -15,6 +15,7 @@ It is highly recommended that these run in Docker using the docker-compose files
 ## Stock Application
 
 - **Fully Containerised**: Easily deployable with Docker containers
+- **Visualise Your Data**: Visual stock history supported with Grafana integration
 - **Real-time Processing**: Continuous processing of stock data from Kafka streams
 - **Price Change Detection**: Monitors percentage-based price movements
 - **Target Price Alerts**: Notifications when stocks hit specified target prices
