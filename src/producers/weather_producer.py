@@ -17,8 +17,8 @@ load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,15 @@ config = {
     "bootstrap.servers": f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}",
     # Fixed properties
     "acks": "all",
-    'retries': 3,
-    'retry.backoff.ms': 1000,
-    'delivery.timeout.ms': 30000,
-    'message.send.max.retries': 3,
+    "retries": 3,
+    "retry.backoff.ms": 1000,
+    "delivery.timeout.ms": 30000,
+    "message.send.max.retries": 3,
 }
 
 producer = Producer(config)
-MAX_RETRIES=10
+MAX_RETRIES = 10
+
 
 # Fetch some data
 # Click sets command line params and their defaults
@@ -53,13 +54,13 @@ MAX_RETRIES=10
 @click.option(
     "--lat",
     type=float,
-    default= 54.51,
+    default=54.51,
     help="API call parameters as json string",
 )
 @click.option(
     "--long",
     type=float,
-    default= -6.04,
+    default=-6.04,
     help="API call parameters as json string",
 )
 @click.option(
@@ -68,16 +69,18 @@ MAX_RETRIES=10
     default='["temperature_2m"]',
     help="API call parameters as json string",
 )
-def fetch_data(url, topic, lat, long, params):
-    timespan = os.environ.get('TIMESPAN', 'current')
-    logger.info(f"URL: {url}\nTopic: {topic}\nLatitude: {lat}\nLongitude: {long}\nParams: {params}\nTime: {timespan}")
+def main(url, topic, lat, long, params):
+    timespan = os.environ.get("TIMESPAN", "current")
+    logger.info(
+        f"URL: {url}\nTopic: {topic}\nLatitude: {lat}\nLongitude: {long}\nParams: {params}\nTime: {timespan}"
+    )
 
     # load params to be usable by requests
-    paramStr=(f'{{"latitude": {lat}, "longitude": {long}, "{timespan}": {params}}}')
+    paramStr = f'{{"latitude": {lat}, "longitude": {long}, "{timespan}": {params}}}'
     logger.debug(f"Param String: {paramStr}")
-    
+
     p = deserialize_data(paramStr)
-    if p:        
+    if p:
         current_retries = 0
         try:
             while True:
@@ -95,20 +98,20 @@ def fetch_data(url, topic, lat, long, params):
                         # Reset retry counter
                         current_retries = 0
                     else:
-                        current_retries+=1
-                        if current_retries > MAX_RETRIES: 
+                        current_retries += 1
+                        if current_retries > MAX_RETRIES:
                             logger.error("Maximum retries exceeded. Exiting")
                             break
                 else:
                     logger.error(f"Error fetching data: {response}")
-                    current_retries +=1
-                    
-                    if current_retries > MAX_RETRIES: 
+                    current_retries += 1
+
+                    if current_retries > MAX_RETRIES:
                         logger.error("Maximum retries exceeded. Exiting")
                         break
                 # Sleep before fetching the data again
                 time.sleep(int(os.environ.get("POLL_INTERVAL", 10)))
-        except Exception as  e:
+        except Exception as e:
             logger.error(f"Unhandled error: {e}")
         except KeyboardInterrupt:
             pass
@@ -118,7 +121,8 @@ def fetch_data(url, topic, lat, long, params):
                 logger.info(f"{remaining} messages not delivered")
     else:
         logger.error("Unexpected Shutdown")
-  
+
+
 def deserialize_data(data_json):
     try:
         data = json.loads(data_json)
@@ -126,7 +130,8 @@ def deserialize_data(data_json):
     except Exception as err:
         logger.error(f"Error deserializing object: {err}")
         return None
-          
+
+
 def serialize_data(data):
     try:
         data_json = json.dumps(data)
@@ -134,27 +139,29 @@ def serialize_data(data):
     except Exception as err:
         logger.error(f"Error serializing message: {err}")
         return None
-    
-def delivery_callback(err, event):    
+
+
+def delivery_callback(err, event):
     if err:
         # If err is retryable we raise Kafka exception in queue_data()
         if err.retriable():
             raise KafkaException(err)
         else:
             # If non-retryable we try to produce to dead letter queue
-            logger.error(f'Produce to topic {event.topic()} failed with error: {err}')
+            logger.error(f"Produce to topic {event.topic()} failed with error: {err}")
             try:
-                producer.produce('dlq', key=event.key(), value=event.value())
+                producer.produce("dlq", key=event.key(), value=event.value())
             except Exception as e:
-                logger.error(f'Failed to send to DLQ: {e}')
+                logger.error(f"Failed to send to DLQ: {e}")
     else:
-        val = event.value().decode('utf8')
-        logger.info(f'{val} sent to {event.topic()} on partition {event.partition()}.')
-        
+        val = event.value().decode("utf8")
+        logger.info(f"{val} sent to {event.topic()} on partition {event.partition()}.")
+
+
 def queue_data(data, topic):
     # Topic will be automatically created if it does not exist
     logger.info(f"Sending data to topic: {topic}")
-    
+
     current_retries = 0
     while current_retries < MAX_RETRIES:
         try:
@@ -165,7 +172,7 @@ def queue_data(data, topic):
             error = ke.args[0]
             if error.retriable():
                 logger.error(f"Retryable producer error: {error}")
-                current_retries +=1
+                current_retries += 1
             else:
                 logger.error(f"Non-retryable producer error: {error}")
                 return False
@@ -175,8 +182,9 @@ def queue_data(data, topic):
             producer.poll(1)
         except Exception as e:
             logger.error(f"Unexpected error while producing: {e}")
-            return False        
+            return False
+
 
 if __name__ == "__main__":
     logger.debug("Entered main")
-    fetch_data()
+    main()

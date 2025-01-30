@@ -29,14 +29,17 @@ consumer_config = {
 }
 
 consumer = None
-influx_client=None
+influx_client = None
 MAX_RETRIES = 10
+
 
 class NoneError(Exception):
     pass
 
+
 # Click sets command line params and their defaults
-def poll_data(topic):
+def main():
+    topic = os.environ.get("STOCK_TOPIC", "stock-data")
 
     try:
         consumer = create_consumer()
@@ -55,7 +58,7 @@ def poll_data(topic):
     except Exception as e:
         logger.error(f"Could not create influxDB client: {e}")
         return
-    
+
     # Subscribe to topic
     try:
         consumer.subscribe([topic])
@@ -101,7 +104,7 @@ def poll_data(topic):
                 if data:
                     try:
                         write_to_influx(write_api, data)
-                    except Exception as e: 
+                    except Exception as e:
                         logger.error(f"Error writing to influxDB: {e}")
 
                 current_retries = 0
@@ -138,20 +141,27 @@ def deserialize_data(data_json):
         logger.error(f"Error deserializing object: {err}")
         return None
 
+
 def write_to_influx(write_api, event):
     if influx_client is not None:
-        logger.info(f"Writing to DB: Date: {event['datetime']} Ticker: {event['ticker']} Price: {event['close']}")
-        point = Point(f"{os.environ['INFLUX_STOCK_MEASUREMENT']}")\
-            .time(f"{event['datetime']}")\
-            .tag("ticker", event["ticker"])\
+        logger.info(
+            f"Writing to DB: Date: {event['datetime']} Ticker: {event['ticker']} Price: {event['close']}"
+        )
+        point = (
+            Point(f"{os.environ['INFLUX_STOCK_MEASUREMENT']}")
+            .time(f"{event['datetime']}")
+            .tag("ticker", event["ticker"])
             .field("price", event["close"])
+        )
         logger.info(point)
-        write_api.write(bucket=os.environ['INFLUXDB_BUCKET'], record=point)
+        write_api.write(bucket=os.environ["INFLUXDB_BUCKET"], record=point)
+
 
 def create_consumer():
     global consumer
     consumer = Consumer(consumer_config)
     return consumer
+
 
 def create_influx_client():
     global influx_client
@@ -159,7 +169,7 @@ def create_influx_client():
         influx_client = InfluxDBClient(
             url="http://influxdb:8086",
             token=os.environ["INFLUXDB_TOKEN"],
-            org=os.environ["INFLUXDB_ORG"]
+            org=os.environ["INFLUXDB_ORG"],
         )
         influx_client.ping()
         logger.info("Successfully connected to InfluxDB")
@@ -171,6 +181,7 @@ def create_influx_client():
         logger.error(f"Error creating InfluxDB client: {e}")
         return None
 
+
 def shutdown_consumer():
     logger.info("Shutting down consumer...")
     try:
@@ -179,6 +190,7 @@ def shutdown_consumer():
         logger.error(f"Error committing offsets: {e}")
     finally:
         consumer.close()
+
 
 def shutdown_influx():
     global influx_client
@@ -190,8 +202,8 @@ def shutdown_influx():
             logger.error(f"Error closing InfluxDB client: {e}")
         finally:
             influx_client = None
-            
+
+
 if __name__ == "__main__":
     logger.debug("Entered main")
-    topic = os.environ.get("STOCK_TOPIC", "stock-data")
-    poll_data(topic)
+    main()

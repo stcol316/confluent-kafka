@@ -39,7 +39,7 @@ MAX_RETRIES=10
     default="weather_data",
     help="The topic to poll for data",
 )
-def poll_data(topic):
+def main(topic):
     # Subscribe to topic
     try:
         consumer.subscribe([topic])
@@ -115,4 +115,4 @@ def shutdown_consumer():
         
 if __name__ == '__main__':
     logger.debug("Entered main")
-    poll_data()
+    main()

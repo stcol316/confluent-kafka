@@ -91,7 +91,7 @@ class StockSnapshot:
     default=1,
     help="Timespan multiplier e.g. a timespan of 'hour' with a multiplyer of '2' will retrieve data for ever 2 hours",
 )
-def fetch_data(ticker, start, end, timespan, multi):
+def main(ticker, start, end, timespan, multi):
     logger.info(
         f"Ticker: {ticker}\nFrom: {start}\nTo: {end}\nTimespan: {timespan}\nMultiplier: {multi}"
     )
@@ -121,7 +121,7 @@ def fetch_data(ticker, start, end, timespan, multi):
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
     except KeyboardInterrupt:
-        pass
+        logger.debug("Debug: Keyboard interrupt")
     finally:
         remaining = producer.flush(timeout=30)
         if remaining > 0:
@@ -266,9 +266,8 @@ def queue_data(data, topic):
 def create_producer():
     global producer
     producer = Producer(config)
-    return producer
 
 
 if __name__ == "__main__":
     logger.debug("Entered main")
-    fetch_data()
+    main()
