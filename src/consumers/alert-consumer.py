@@ -50,53 +50,10 @@ def main():
     logger.info("Creating Slack client")
     get_slack_client()
 
-    logger.info(f"Polling {topic} for events...")
-    current_retries = 0
     # Poll for new messages from Kafka and print them.
+    logger.info(f"Polling {topic} for events...")
     try:
-        while True:
-            try:
-                msg = consumer.poll(30)
-                if msg is None:
-                    logger.debug("Debug: Message is None")
-                    logger.info("Waiting...")
-                    continue
-
-                if msg.error():
-                    if msg.error().retriable():
-                        logger.error(f"Retryable error encountered: {msg.error()}")
-                        current_retries += 1
-                        if current_retries > MAX_RETRIES:
-                            logger.error("Maximum retries exceeded. Exiting")
-                            break
-                        continue
-                    else:
-                        if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
-                            logger.info(f"Subscribed topic not available: {topic}")
-                            current_retries += 1
-                            time.sleep(int(os.environ.get("POLL_INTERVAL", 10)))
-                            continue
-                        logger.error(f"Fatal error encountered: {msg.error()}")
-                        continue
-
-                data = deserialize_data(msg.value())
-                if data:
-                    logger.debug("Sending message to slack")
-                    slack_alert(data, slack_client)
-                    current_retries = 0
-            except KafkaException as ke:
-                logger.error(f"Kafka Exception occurred: {ke}")
-                error = ke.args[0]
-                if error.retriable():
-                    logger.error(f"Retryable error: {error}")
-                    current_retries += 1
-                    if current_retries > MAX_RETRIES:
-                        logger.error("Maximum retries exceeded. Exiting")
-                        break
-                    continue
-                else:
-                    logger.error(f"Fatal error: {error}")
-                    break
+        poll_data(topic)
     except MaxRetriesExceededError as re:
         logger.error(f"Exiting due to too many retries: {re}")
     except KafkaException as ke:
@@ -108,6 +65,59 @@ def main():
     finally:
         # Leave group and commit final offsets
         shutdown_consumer()
+
+
+def poll_data(topic):
+    current_retries = 0
+
+    while current_retries < MAX_RETRIES:
+        try:
+            msg = consumer.poll(30)
+            if msg is None:
+                logger.debug("Debug: Message is None")
+                logger.info("Waiting...")
+                continue
+
+            if msg.error():
+                if msg.error().retriable():
+                    logger.error(f"Retryable error encountered: {msg.error()}")
+                    current_retries += 1
+                    continue
+                else:
+                    if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                        logger.info(f"Subscribed topic not available: {topic}")
+                        current_retries += 1
+                        time.sleep(int(os.environ.get("POLL_INTERVAL", 10)))
+                        continue
+                    logger.error(f"Fatal error encountered: {msg.error()}")
+                    raise KafkaException(msg.error())
+
+            data = deserialize_data(msg.value())
+            if data:
+                try:
+                    logger.debug("Sending message to slack")
+                    slack_alert(data, slack_client)
+                    current_retries = 0
+                except MaxRetriesExceededError as re:
+                    logger.error(f"Slack Retries exceeded error: {re}")
+                    current_retries += 1
+                    continue
+                except SlackApiError as se:
+                    logger.error(f"Slack API error: {se}")
+                    current_retries += 1
+                    continue
+        except KafkaException as ke:
+            logger.error(f"Kafka Exception occurred: {ke}")
+            error = ke.args[0]
+            if error.retriable():
+                logger.error(f"Retryable error: {error}")
+                current_retries += 1
+                continue
+            else:
+                logger.error(f"Fatal error: {error}")
+                raise KafkaException(error)
+
+    raise MaxRetriesExceededError(f"Maximum retries exceeded while polling {topic}.")
 
 
 def deserialize_data(data):
@@ -122,36 +132,38 @@ def deserialize_data(data):
 
 def subscribe_to_topic(broker, topic):
     current_retries = 0
-    while current_retries < MAX_RETRIES:
-        try:
-            admin_client = AdminClient({"bootstrap.servers": broker})
-            metadata = admin_client.list_topics(timeout=10)
-
-            # Block until topic is created by the Flink Processor
-            while topic not in metadata.topics:
-                logger.info(f"Topic {topic} not yet available. Waiting...")
-                time.sleep(10)
+    admin_client = None
+    try:
+        while current_retries < MAX_RETRIES:
+            try:
+                admin_client = AdminClient({"bootstrap.servers": broker})
                 metadata = admin_client.list_topics(timeout=10)
 
-            consumer.subscribe([topic])
-            logger.info(f"Subscribed to topic {topic}")
-            return
-        except KafkaException as ke:
-            logger.error(f"Kafka subscription error: {ke}")
-            if ke.retriable():
-                logger.error(f"Retryable kafka error during subscribe: {ke}")
-                current_retries += 1
-                # We could have a backoff mechanism here
-                time.sleep(1)
-            else:
-                logger.error(f"Non-retryable kafka error during subscribe: {ke}")
+                # Block until topic is created by the Flink Processor
+                while topic not in metadata.topics:
+                    logger.info(f"Topic {topic} not yet available. Waiting...")
+                    time.sleep(10)
+                    metadata = admin_client.list_topics(timeout=10)
+
+                consumer.subscribe([topic])
+                logger.info(f"Subscribed to topic {topic}")
+                return
+            except KafkaException as ke:
+                logger.error(f"Kafka subscription error: {ke}")
+                if ke.retriable():
+                    logger.error(f"Retryable kafka error during subscribe: {ke}")
+                    current_retries += 1
+                    # We could have a backoff mechanism here
+                    time.sleep(1)
+                else:
+                    logger.error(f"Non-retryable kafka error during subscribe: {ke}")
+                    raise
+            except Exception as e:
+                logger.error(f"Error subscribing to topic: {topic} \n Error: {e}")
                 raise
-        except Exception as e:
-            logger.error(f"Error subscribing to topic: {topic} \n Error: {e}")
-            raise
-        finally:
-            if admin_client:
-                admin_client.close()
+    finally:
+        if admin_client:
+            admin_client.close()
 
     raise MaxRetriesExceededError(
         f"Failed to subscribe to topic {topic} after {MAX_RETRIES} attempts"
@@ -216,7 +228,7 @@ def slack_alert(event, slack_client):
                         channel=os.environ["SLACK_CHANNEL"],
                         text=message,
                     )
-                    break
+                    return
                 except SlackApiError as se:
                     if se.response.status_code == SLACK_RATE_LIMIT_EC:
                         # Get Retry-After value
@@ -225,13 +237,14 @@ def slack_alert(event, slack_client):
                         time.sleep(delay)
                     elif se.response["error"] in ["invalid_auth", "channel_not_found"]:
                         logger.error(f"Non-Retryable Error: {se.response['error']}")
+                        raise
                     else:
-                        logger.error(f"Failed to push message to Slack: {response}")
+                        logger.error(f"Failed to push message to Slack: {str(se)}")
                         current_retries += 1
                         # We are rate limited to 1 message per second
                         time.sleep(1.2)
 
-            logger.error(
+            raise MaxRetriesExceededError(
                 f"Failed to push message to Slack after {MAX_RETRIES} attempts"
             )
 
@@ -275,23 +288,24 @@ def verify_env():
 def shutdown_consumer():
     logger.info("Shutting down consumer...")
     current_retries = 0
-    while current_retries < MAX_RETRIES:
-        try:
-            # Commit any pending offsets, break if success
-            consumer.commit()
-            break
-        except KafkaException as ke:
-            logger.error(f"Error committing offsets: {ke}")
-            if ke.retriable():
-                logger.error(f"Retryable kafka error during shutdown: {ke}")
-                current_retries += 1
-                # We could have a backoff mechanism here
-                time.sleep(1)
-            else:
-                logger.error(f"Non-retryable kafka error during shutdown: {ke}")
+    try:
+        while current_retries < MAX_RETRIES:
+            try:
+                # Commit any pending offsets, break if success
+                consumer.commit()
                 break
-        finally:
-            consumer.close()
+            except KafkaException as ke:
+                logger.error(f"Error committing offsets: {ke}")
+                if ke.retriable():
+                    logger.error(f"Retryable kafka error during shutdown: {ke}")
+                    current_retries += 1
+                    # We could have a backoff mechanism here
+                    time.sleep(1)
+                else:
+                    logger.error(f"Non-retryable kafka error during shutdown: {ke}")
+                    break
+    finally:
+        consumer.close()
 
 
 if __name__ == "__main__":
