@@ -11,6 +11,7 @@ ENV PYTHONUNBUFFERED=1
 # The root dir is src/
 COPY ./consumers/consumer.py .
 COPY ./consumers/stock_to_influxdb.py .
+COPY ./consumers/alert-consumer.py .
 COPY ./consumers/weather-consumer.py .
 COPY ./consumers/requirements.txt /tmp/
 COPY .env .

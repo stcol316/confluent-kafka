@@ -2,3 +2,4 @@ confluent-kafka
 click
 python-dotenv
 influxdb_client
+slack-sdk

@@ -15,7 +15,6 @@ from pyflink.datastream.state import ValueStateDescriptor
 from pyflink.common.restart_strategy import RestartStrategies
 from pyflink.datastream.checkpointing_mode import CheckpointingMode
 from pyflink.datastream.checkpoint_config import ExternalizedCheckpointCleanup
-from slack_sdk import WebClient
 import time
 import os
 import json
@@ -23,6 +22,8 @@ import logging
 import sys
 import signal
 from dotenv import load_dotenv
+from confluent_kafka import KafkaException
+from confluent_kafka.admin import AdminClient, NewTopic
 
 load_dotenv()
 
@@ -33,7 +34,6 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
-slack_client = None
 
 
 class TargetPriceDetector(KeyedProcessFunction):
@@ -61,12 +61,9 @@ class TargetPriceDetector(KeyedProcessFunction):
                     "datetime": value["datetime"],
                     "target_price": self.target_price,
                     "current_price": current_price,
-                    "alert_type": "target_price_reached",
+                    "alert_type": f"{os.environ['TARGET_PRICE_ALERT']}",
                 }
-                # result = json.dumps(result)
-                # print(type(result))
-                # print(result)
-                time.sleep(1)
+
                 yield result
         except TypeError as te:
             print(f"Error calculating target price: {te}")
@@ -103,25 +100,9 @@ class PriceChangeDetector(KeyedProcessFunction):
                         "previous_price": previous_price,
                         "current_price": current_price,
                         "price_change_percentage": price_change,
+                        "alert_type": f"{os.environ['PERCENTAGE_CHANGE_ALERT']}",
                     }
 
-                    # TODO: Push these alerts to individual topics and let consumers write to slack
-                    # if self.slack_client is not None:
-                    #     message = ""
-                    #     if price_change > 0:
-                    #         message = f"{value['datetime']} {value['ticker']} price has increased by {price_change}%"
-                    #     else:
-                    #         message = f"{value['datetime']} {value['ticker']} price has decreased by {price_change}%"
-
-                    # self.slack_client.chat_postMessage(
-                    #     channel=os.environ["SLACK_CHANNEL"],
-                    #     text=message,
-                    # )
-                    # We are rate limited to 1 message per second
-                    # time.sleep(1.2)
-                    # result = json.dumps(result)
-                    # print(type(result))
-                    # print(result)
                     yield result
 
             self.last_price.update(current_price)
@@ -172,13 +153,22 @@ class SavepointHandler:
         sys.exit(0)
 
 
-def process_stock_data():
+def main():
     try:
         # Ensure env has correct values configured
         verify_env()
 
         # Configure Broker
         broker = f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}"
+
+        # Create alert topic
+        try:
+            create_topic_if_not_exists(broker)
+        except KafkaException as ke:
+            print(f"KafkaException encountered while creating topic: {ke}")
+            return
+        except Exception as e:
+            print(f"Unexpected error occured while creating Kafka Topic: {e}")
 
         # Create the execution environment
         print("Creating the execution environment")
@@ -204,11 +194,6 @@ def process_stock_data():
         print("Creating kafka sink")
         kafka_sink = build_kafka_sink(broker)
 
-        # Send a message
-        slack_token = os.environ.get("SLACK_TOKEN", None)
-        if slack_token is not None:
-            slack_client = WebClient(token=slack_token)
-
         # Create the data stream from Kafka and transform the data
         print("Processing the data stream")
         configure_percentage_change_stream(env, kafka_source, wms, kafka_sink)
@@ -223,6 +208,22 @@ def process_stock_data():
     except Exception as e:
         print(f"Fatal error in stock processing: {e}")
         raise
+
+
+# Check if the topic exists and create it if not
+def create_topic_if_not_exists(broker):
+    # Create the AdminClient
+    admin_client = AdminClient({"bootstrap.servers": broker})
+    metadata = admin_client.list_topics(timeout=10)
+    topic = os.environ["ALERT_TOPIC"]
+    if topic not in metadata.topics:
+        new_topic = NewTopic(topic)
+        tf = admin_client.create_topics([new_topic])
+        # Block until done
+        tf[topic].result()
+        print(f"Topic {topic} created successfully.")
+    else:
+        print(f"Topic {topic} already exists.")
 
 
 def create_kafka_source(broker):
@@ -363,7 +364,7 @@ def configure_percentage_change_stream(env, kafka_source, wms, kafka_sink):
         )
         .map(process_record)
         .key_by(lambda x: x["ticker"])
-        .process(PriceChangeDetector(float(os.environ["PERCENTAGE_ALERT"])))
+        .process(PriceChangeDetector(float(os.environ["PERCENTAGE_THRESHOLD"])))
     )
 
     # Monitor the stream
@@ -459,6 +460,6 @@ def get_latest_savepoint(savepoint_dir):
 if __name__ == "__main__":
     logger.debug("Starting stock processor")
     try:
-        process_stock_data()
+        main()
     except Exception:
         sys.exit(1)

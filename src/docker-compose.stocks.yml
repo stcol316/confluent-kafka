@@ -168,6 +168,20 @@ services:
       influxdb:
         condition: service_healthy
 
+  alert-consumer:
+    build:
+      context: .
+      dockerfile: ./consumers/Dockerfile
+    container_name: alert-consumer
+    depends_on:
+      broker:
+        condition: service_healthy
+      stock-processor:
+        condition: service_started
+    environment:
+      KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
+    command: python alert-consumer.py
+
 volumes:
   influxdb-data:
   influxdb-config:
