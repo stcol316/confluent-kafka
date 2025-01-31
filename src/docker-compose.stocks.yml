@@ -43,11 +43,11 @@ services:
       KAFKA_BROKER: ${BROKER_NAME}:${BROKER_LISTENER_PORT}
     command: python stock_producer.py
 
-  consumer-to-db:
+  stock-to-influx:
     build:
       context: .
       dockerfile: ./consumers/Dockerfile
-    container_name: consumer-to-db
+    container_name: stock-to-influx
     depends_on:
       broker:
         condition: service_healthy

@@ -32,27 +32,27 @@ class MaxRetriesExceededError(Exception):
 
 
 def main():
-    # Verify all necessary env vars are present
-    logger.info("Verifying env variables")
-    verify_env()
-
-    topic = os.environ["ALERT_TOPIC"]
-    broker = f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}"
-
-    # Create Consumer
-    logger.info("Creating Consumer")
-    create_consumer(broker)
-
-    # Subscribe to topic
-    logger.info(f"Subscribing to Topic {topic}")
-    subscribe_to_topic(broker, topic)
-
-    logger.info("Creating Slack client")
-    get_slack_client()
-
-    # Poll for new messages from Kafka and print them.
-    logger.info(f"Polling {topic} for events...")
     try:
+        # Verify all necessary env vars are present
+        logger.info("Verifying env variables")
+        verify_env()
+
+        topic = os.environ["ALERT_TOPIC"]
+        broker = f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}"
+
+        # Create Consumer
+        logger.info("Creating Consumer")
+        create_consumer(broker)
+
+        # Subscribe to topic
+        logger.info(f"Subscribing to Topic {topic}")
+        subscribe_to_topic(broker, topic)
+
+        logger.info("Creating Slack client")
+        get_slack_client()
+
+        # Poll for new messages from Kafka and send alerts to Slack
+        logger.info(f"Polling {topic} for events...")
         poll_data(topic)
     except MaxRetriesExceededError as re:
         logger.error(f"Exiting due to too many retries: {re}")
@@ -72,27 +72,28 @@ def poll_data(topic):
 
     while current_retries < MAX_RETRIES:
         try:
-            msg = consumer.poll(30)
-            if msg is None:
+            event = consumer.poll(30)
+            if event is None:
                 logger.debug("Debug: Message is None")
                 logger.info("Waiting...")
                 continue
 
-            if msg.error():
-                if msg.error().retriable():
-                    logger.error(f"Retryable error encountered: {msg.error()}")
+            if event.error():
+                if event.error().retriable():
+                    logger.error(f"Retryable error encountered: {event.error()}")
                     current_retries += 1
                     continue
                 else:
-                    if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    if event.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
                         logger.info(f"Subscribed topic not available: {topic}")
                         current_retries += 1
                         time.sleep(int(os.environ.get("POLL_INTERVAL", 10)))
                         continue
-                    logger.error(f"Fatal error encountered: {msg.error()}")
-                    raise KafkaException(msg.error())
+                    logger.error(f"Fatal error encountered: {event.error()}")
+                    raise KafkaException(event.error())
 
-            data = deserialize_data(msg.value())
+            # Event received
+            data = deserialize_data(event.value())
             if data:
                 try:
                     logger.debug("Sending message to slack")
