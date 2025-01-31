@@ -1,8 +1,4 @@
 #!/usr/bin/env python
-# Ensure docker is running
-# colima start
-# confluent local kafka start
-
 import requests
 from confluent_kafka import Producer, KafkaException
 import click
@@ -13,6 +9,7 @@ import logging
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+from dataclasses import dataclass
 
 load_dotenv()
 
@@ -22,19 +19,6 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
-
-# Configure Producer
-config = {
-    # User-specific properties that you must set
-    # Port can be found as Plaintext Ports after running confluent local kafka start
-    "bootstrap.servers": f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}",
-    # Fixed properties
-    "acks": "all",
-    "retries": 3,
-    "retry.backoff.ms": 1000,
-    "delivery.timeout.ms": 30000,
-    "message.send.max.retries": 3,
-}
 
 producer = None
 MAX_RETRIES = 10
@@ -58,74 +42,141 @@ class StockSnapshot:
         return datetime.fromtimestamp(self.timestamp / 1000.0)
 
 
-# Fetch some data
-# Click sets command line params and their defaults
-@click.command()
-@click.option(
-    "--ticker",
-    type=str,
-    default="CFLT",
-    help="The stock ticker you want to analyse",
-)
-@click.option(
-    "--start",
-    type=str,
-    default="2023-01-31",
-    help="The starting date from which you want to analyse data formatted to YYYY-MM-DD or a millisecond timestamp (Max 2 yrs)",
-)
-@click.option(
-    "--end",
-    type=str,
-    default=datetime.today().strftime("%Y-%m-%d"),
-    help="The end date on which you want to stop analysing data formatted to YYYY-MM-DD or a millisecond timestamp",
-)
-@click.option(
-    "--timespan",
-    type=str,
-    default="day",
-    help="The granularity of the data [second, minute, hour, day, week, month, quarter, year]",
-)
-@click.option(
-    "--multi",
-    type=int,
-    default=1,
-    help="Timespan multiplier e.g. a timespan of 'hour' with a multiplyer of '2' will retrieve data for ever 2 hours",
-)
-def main(ticker, start, end, timespan, multi):
-    logger.info(
-        f"Ticker: {ticker}\nFrom: {start}\nTo: {end}\nTimespan: {timespan}\nMultiplier: {multi}"
-    )
-    # load params to be usable by requests
-    reqStr = f"{os.environ['STOCK_URL']}ticker/{ticker}/range/{multi}/{timespan}/{start}/{end}"
-    logger.debug(f"Request String: {reqStr}")
+class MaxRetriesExceededError(Exception):
+    pass
 
+
+@dataclass
+class Config:
+    ticker: str
+    start_date: str
+    end_date: str
+    timespan: str
+    multiplier: int
+    broker: str
+    topic: str
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        start_date = os.environ.get("RETRIEVAL_START_DATE", get_start_date())
+        if start_date == "":
+            start_date = get_start_date()
+        end_date = os.environ.get("RETRIEVAL_END_DATE", get_end_date())
+        if end_date == "":
+            end_date = get_end_date()
+
+        return cls(
+            ticker=os.environ.get("STOCK_TICKER", "CFLT"),
+            start_date=start_date,
+            end_date=end_date,
+            timespan=os.environ.get("RETRIEVAL_TIMESPAN", "day"),
+            multiplier=int(os.environ.get("RETRIEVAL_MULTIPLIER", "1")),
+            broker=f"{os.environ['BROKER_NAME']}:{os.environ['BROKER_LISTENER_PORT']}",
+            topic=os.environ["STOCK_TOPIC"],
+        )
+
+    def validate(self) -> None:
+        """Validate configuration values"""
+        if self.multiplier < 1:
+            raise ValueError("Multiplier must be positive")
+
+        if self.timespan not in [
+            "second",
+            "minute",
+            "hour",
+            "day",
+            "week",
+            "month",
+            "quarter",
+            "year",
+        ]:
+            raise ValueError("Invalid timespan")
+
+        try:
+            datetime.strptime(self.start_date, "%Y-%m-%d")
+            datetime.strptime(self.end_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD")
+
+
+def main():
     try:
-        topic = os.environ.get("STOCK_TOPIC")
-        create_producer()
+        # Verify all necessary env vars are present
+        logger.info("Verifying env variables")
+        verify_env()
+
+        # Get .env vars
+        logger.info("Creating Config")
+        config = Config.from_env()
+        config.validate()
+
+        logger.info(
+            f"Configuration:\n"
+            f"Ticker: {config.ticker}\n"
+            f"From: {config.start_date}\n"
+            f"To: {config.end_date}\n"
+            f"Timespan: {config.timespan}\n"
+            f"Multiplier: {config.multiplier}"
+        )
+
+        # load params to be usable by requests
+        reqStr = f"{os.environ['STOCK_URL']}ticker/{config.ticker}/range/{config.multiplier}/{config.timespan}/{config.start_date}/{config.end_date}"
+        logger.debug(f"Request String: {reqStr}")
+
+        logger.info("Creating Producer")
+        create_producer(config.broker)
 
         # Fetch historic data for the stock
         for data in fetch_all_historic_data(reqStr, None):
-            sdata = serialize_data(data, ticker)
+            sdata = serialize_data(data, config.ticker)
             logger.debug(sdata)
             if sdata:
                 logger.debug(f"Queuing data: {sdata}")
-                if not queue_data(sdata, topic):
+                if not queue_data(sdata, config.topic):
                     logger.error("Failed to queue data, stopping producer")
                     break
-        logger.debug("DONE FETCHING HISTORIC DATA")
+        logger.info("DONE FETCHING HISTORIC DATA")
 
         # TODO: We can move to gathering live data here
         poll_live_data()
-    except requests.RequestException as e:
-        logger.error(f"HTTP Request failed: {e}")
+    except ValueError as ve:
+        logger.error(f"ValueError: {ve}")
+    except requests.RequestException as re:
+        logger.error(f"HTTP Request failed: {re}")
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
     except KeyboardInterrupt:
         logger.debug("Debug: Keyboard interrupt")
     finally:
-        remaining = producer.flush(timeout=30)
-        if remaining > 0:
-            logger.info(f"{remaining} messages not delivered")
+        if producer:
+            remaining = producer.flush(timeout=30)
+            if remaining > 0:
+                logger.info(f"{remaining} messages not delivered")
+
+
+def get_start_date():
+    today = datetime.today()
+    return today.replace(year=today.year - 2).strftime("%Y-%m-%d")
+
+
+def get_end_date():
+    return datetime.today().strftime("%Y-%m-%d")
+
+
+def verify_env():
+    required_vars = [
+        "BROKER_NAME",
+        "BROKER_LISTENER_PORT",
+        "STOCK_TOPIC",
+        "STOCK_URL",
+        "API_KEY",
+    ]
+    missing_vars = [var for var in required_vars if var not in os.environ]
+
+    if missing_vars:
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(missing_vars)}"
+        )
 
 
 def fetch_all_historic_data(reqStr, next_url=None):
@@ -165,8 +216,20 @@ def fetch_historic_data(reqStr, next_url=None):
             logging.debug(f"fetch_historic_data: {response}")
             if response.status_code == 200:
                 return response
+            elif response.status_code == 429:  # Rate limit hit
+                retry_after = int(response.headers.get("Retry-After", 60))
+                logger.warning(f"Rate limited. Waiting {retry_after} seconds")
+                time.sleep(retry_after)
+            elif (
+                response.status_code == 403
+            ):  # Forbidden, likely bad timeframe provided
+                logger.error(
+                    f"Forbidden. Likely incorrect timeframe provided. 2 years of history max."
+                )
             else:
-                logger.error(f"HTTP Request failed with status {response.status_code}")
+                logger.error(f"HTTP Request failed with status {response}")
+                current_retries += 1
+                time.sleep(1)
         except requests.RequestException as re:
             logger.error(f"HTTP Request failed: {re}")
             current_retries += 1
@@ -216,16 +279,12 @@ def serialize_data(data, ticker):
 
 def delivery_callback(err, event):
     if err:
-        # If err is retryable we raise Kafka exception in queue_data()
-        if err.retriable():
-            raise KafkaException(err)
-        else:
-            # If non-retryable we try to produce to dead letter queue
-            logger.error(f"Produce to topic {event.topic()} failed with error: {err}")
-            try:
-                producer.produce("dlq", key=event.key(), value=event.value())
-            except Exception as e:
-                logger.error(f"Failed to send to DLQ: {e}")
+        # If non-retryable or retries exhausted we try to produce to dead letter queue
+        logger.error(f"Produce to topic {event.topic()} failed with error: {err}")
+        try:
+            producer.produce("dlq", key=event.key(), value=event.value())
+        except Exception as e:
+            logger.error(f"Failed to send to DLQ: {e}")
     else:
         val = event.value().decode("utf8")
         logger.debug(f"{val} sent to {event.topic()} on partition {event.partition()}.")
@@ -263,9 +322,44 @@ def queue_data(data, topic):
     return False
 
 
-def create_producer():
+def create_producer(broker):
     global producer
-    producer = Producer(config)
+    # Configure Producer
+    producer_config = {
+        "bootstrap.servers": broker,
+        "acks": "all",
+        "retries": 3,
+        "retry.backoff.ms": 1000,
+        "delivery.timeout.ms": 30000,
+        "message.send.max.retries": 3,
+        "socket.timeout.ms": 10000,
+        "message.timeout.ms": 10000,
+    }
+
+    current_retries = 0
+    while current_retries < MAX_RETRIES:
+        try:
+            producer = Producer(producer_config)
+            return
+        except KafkaException as ke:
+            logger.error(f"Kafka producer creation error: {ke}")
+            if ke.retriable():
+                logger.error(f"Retryable kafka error during producer creation: {ke}")
+                current_retries += 1
+                # We could have a backoff mechanism here
+                time.sleep(1)
+            else:
+                logger.error(
+                    f"Non-retryable kafka error during producer creation: {ke}"
+                )
+                raise
+        except Exception as e:
+            logger.error(f"Unexpected error while creating producer: {e}")
+            raise
+
+    raise MaxRetriesExceededError(
+        f"Failed to create producer after {MAX_RETRIES} attempts"
+    )
 
 
 if __name__ == "__main__":

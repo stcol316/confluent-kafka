@@ -251,15 +251,15 @@ def slack_alert(event, slack_client):
 
 
 def handle_tp_alert(event):
-    message = f"{event['datetime']} {event['ticker']} price has reached the target of {event['target_price']}. Current price: {event['current_price']}"
+    message = f"{event['datetime']} {event['ticker']} price has reached the target of ${event['target_price']}. Current price: ${event['current_price']}"
     return message
 
 
 def handle_pc_alert(event):
     if event["price_change_percentage"] > 0:
-        message = f"{event['datetime']} {event['ticker']} price has increased by {event['price_change_percentage']}%. Current price: {event['current_price']}"
+        message = f"{event['datetime']} {event['ticker']} price has increased by {event['price_change_percentage']}%. Current price: ${event['current_price']}"
     else:
-        message = f"{event['datetime']} {event['ticker']} price has decreased by {event['price_change_percentage']}%. Current price: {event['current_price']}"
+        message = f"{event['datetime']} {event['ticker']} price has decreased by {event['price_change_percentage']}%. Current price: ${event['current_price']}"
     return message
 
 

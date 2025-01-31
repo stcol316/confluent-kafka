@@ -319,6 +319,10 @@ def verify_env():
         "BROKER_LISTENER_PORT",
         "STOCK_TOPIC",
         "ALERT_TOPIC",
+        "TARGET_PRICE_ALERT",
+        "PERCENTAGE_CHANGE_ALERT",
+        "TARGET_PRICE",
+        "PERCENTAGE_THRESHOLD",
     ]
     missing_vars = [var for var in required_vars if var not in os.environ]
 
