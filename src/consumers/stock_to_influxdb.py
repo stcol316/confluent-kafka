@@ -156,7 +156,8 @@ def subscribe_to_topic(broker, topic):
                 return
             except KafkaException as ke:
                 logger.error(f"Kafka subscription error: {ke}")
-                if ke.retriable():
+                error = ke.args[0]
+                if error.retriable():
                     logger.error(f"Retryable kafka error during subscribe: {ke}")
                     current_retries += 1
                     # We could have a backoff mechanism here
@@ -254,7 +255,8 @@ def create_consumer(broker):
             return
         except KafkaException as ke:
             logger.error(f"Kafka consumer creation error: {ke}")
-            if ke.retriable():
+            error = ke.args[0]
+            if error.retriable():
                 logger.error(f"Retryable kafka error during consumer creation: {ke}")
                 current_retries += 1
                 # We could have a backoff mechanism here
@@ -302,7 +304,8 @@ def shutdown_consumer():
                 break
             except KafkaException as ke:
                 logger.error(f"Error committing offsets: {ke}")
-                if ke.retriable():
+                error = ke.args[0]
+                if error.retriable():
                     logger.error(f"Retryable kafka error during shutdown: {ke}")
                     current_retries += 1
                     # We could have a backoff mechanism here

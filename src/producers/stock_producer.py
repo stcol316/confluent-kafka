@@ -343,7 +343,8 @@ def create_producer(broker):
             return
         except KafkaException as ke:
             logger.error(f"Kafka producer creation error: {ke}")
-            if ke.retriable():
+            error = ke.args[0]
+            if error.retriable():
                 logger.error(f"Retryable kafka error during producer creation: {ke}")
                 current_retries += 1
                 # We could have a backoff mechanism here
