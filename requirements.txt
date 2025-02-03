@@ -3,3 +3,4 @@ pytest
 requests
 click
 python_dotenv
+influxdb_client

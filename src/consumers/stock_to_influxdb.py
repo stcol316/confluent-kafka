@@ -206,19 +206,18 @@ def deserialize_data(data_json):
 
 
 def write_to_influx(write_api, event):
-    if influx_client is not None:
-        logger.info(
-            f"Writing to DB: Date: {event['datetime']} Ticker: {event['ticker']} Price: {event['close']}"
-        )
-        point = create_point(event)
-        logger.debug(point)
-        if point:
-            try:
-                write_api.write(bucket=os.environ["INFLUXDB_BUCKET"], record=point)
-            except (ValueError, TypeError) as te:
-                logger.error(f"Data type error creating point: {te}")
-            except Exception as e:
-                logger.error(f"Failed to write to InfluxDB: {e}")
+    logger.info(
+        f"Writing to DB: Date: {event['datetime']} Ticker: {event['ticker']} Price: {event['close']}"
+    )
+    point = create_point(event)
+    logger.debug(point)
+    if point:
+        try:
+            write_api.write(bucket=os.environ["INFLUXDB_BUCKET"], record=point)
+        except (ValueError, TypeError) as te:
+            logger.error(f"Data type error creating point: {te}")
+        except Exception as e:
+            logger.error(f"Failed to write to InfluxDB: {e}")
 
 
 def create_point(event):

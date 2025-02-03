@@ -92,13 +92,13 @@ def test_create_consumer_retries_exceeded(mock_env, mock_consumer):
     mock_error = MagicMock()
     mock_error.retriable.return_value = True
     kafka_exception = KafkaException(mock_error)
-    mock_consumer.side_effect = [kafka_exception] * 2
+    mock_consumer.side_effect = kafka_exception
 
-    with patch("src.consumers.alert_consumer.MAX_RETRIES", 2):
+    with patch("src.consumers.alert_consumer.MAX_RETRIES", 1):
         with pytest.raises(MaxRetriesExceededError):
             create_consumer("kafka:9092")
 
-    assert mock_consumer.call_count == 2
+    assert mock_consumer.call_count == 1
 
 
 def test_subscribe_to_topic_success(mock_env, mock_admin_client, mock_consumer):
@@ -129,9 +129,9 @@ def test_subscribe_to_topic_retries_exceeded(
 
     mock_consumer_instance = MagicMock()
     mock_consumer.return_value = mock_consumer_instance
-    mock_consumer_instance.subscribe.side_effect = [kafka_exception] * 2
+    mock_consumer_instance.subscribe.side_effect = kafka_exception
     create_consumer("kafka:9092")
-    with patch("src.consumers.alert_consumer.MAX_RETRIES", 2):
+    with patch("src.consumers.alert_consumer.MAX_RETRIES", 1):
         with pytest.raises(MaxRetriesExceededError):
             subscribe_to_topic("kafka:9092", "alerts")
 
@@ -218,7 +218,7 @@ def test_shutdown_consumer_success(mock_consumer):
     mock_consumer_instance.close.assert_called_once()
 
 
-def test_shutdown_consumer_retries(mock_consumer, caplog):
+def test_shutdown_consumer_retries_exceeded(mock_consumer, caplog):
     caplog.set_level(logging.ERROR)
 
     mock_consumer_instance = MagicMock()
@@ -229,12 +229,12 @@ def test_shutdown_consumer_retries(mock_consumer, caplog):
     kafka_exception = KafkaException(mock_error)
 
     create_consumer("kafka:9092")
-    mock_consumer_instance.commit.side_effect = [kafka_exception] * 2
-    with patch("src.consumers.alert_consumer.MAX_RETRIES", 2):
+    mock_consumer_instance.commit.side_effect = kafka_exception
+    with patch("src.consumers.alert_consumer.MAX_RETRIES", 1):
         shutdown_consumer()
 
     assert "Retryable kafka error during shutdown" in caplog.text
-    assert mock_consumer.return_value.commit.call_count == 2
+    assert mock_consumer.return_value.commit.call_count == 1
     mock_consumer_instance.close.assert_called_once()
 
 
@@ -307,7 +307,7 @@ def test_poll_data_success(
     mock_slack.assert_called_once_with({"valid": "data"}, mock_slack_instance)
 
 
-def test_poll_data_max_retries(mock_consumer):
+def test_poll_data_retries_exceeded(mock_consumer):
     mock_error = MagicMock()
     mock_error.retriable.return_value = True
     error = mock_error

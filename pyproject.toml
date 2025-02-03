@@ -15,4 +15,5 @@ dependencies = [
     "confluent-kafka",
     "python-dotenv",
     "click",
+    "influxdb_client",
 ]
